@@ -1,0 +1,8 @@
+{
+  "name": "three",
+  "version": "0.2.1",
+  "description": "Multi-LLM, multi-role vibe coding via the local three MCP server.",
+  "author": {
+    "name": "three"
+  }
+}
