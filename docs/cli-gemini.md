@@ -46,7 +46,7 @@
 
 ### 4) 读写能力（capabilities）
 - `filesystem = read-only` → **传 `--sandbox`**
-- `filesystem = read-write/deny` → **不传任何参数**
+- `filesystem = read-write` → **不传任何参数**
 
 > 注意：Gemini CLI 只有 `sandbox` 开关，没有更细粒度的读写控制。
 
@@ -81,7 +81,6 @@
 2) **`json` 更适合自动化解析**：它返回一次性结构化 JSON，便于机器消费；在当前 Gemini CLI 版本中也**包含 `session_id`**，因此可用于会话复用。  
    若你的版本不提供 `session_id`，请移除 `session_id_path`，或回退到 `stream-json`。
 3) **`--debug` 未映射**：若需要，需显式扩展 `adapter.args_template`。
-4) `filesystem=deny` 当前不做强制阻断，仅作为语义输入。
 
 ## Model 默认值（重要）
 

@@ -1,6 +1,7 @@
 {
   "adapters": {
     "codex": {
+      "filesystem_capabilities": ["read-only", "read-write"],
       "args_template": [
         "exec",
         "{% if capabilities.filesystem == 'read-only' %}--sandbox{% endif %}",
@@ -33,6 +34,7 @@
       }
     },
     "claude": {
+      "filesystem_capabilities": ["read-only", "read-write"],
       "args_template": [
         "--print",
         "{{ prompt }}",
@@ -53,6 +55,7 @@
       }
     },
     "gemini": {
+      "filesystem_capabilities": ["read-only", "read-write"],
       "args_template": [
         "--output-format",
         "json",
@@ -76,6 +79,7 @@
       }
     },
     "opencode": {
+      "filesystem_capabilities": ["read-write"],
       "args_template": [
         "run",
         "{% if model != 'default' %}-m{% endif %}",
@@ -88,12 +92,13 @@
       ],
       "output_parser": {
         "type": "json_stream",
-        "session_id_path": "session_id",
-        "message_path": "response",
+        "session_id_path": "part.sessionID",
+        "message_path": "part.text",
         "pick": "last"
       }
     },
     "kimi": {
+      "filesystem_capabilities": ["read-write"],
       "args_template": [
         "--print",
         "--thinking",

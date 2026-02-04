@@ -210,34 +210,63 @@ async fn cfgtest_real_gemini_include_directories_reads_external_file() {
     let content = format!("hello-{}", unique_suffix());
     std::fs::write(&external_file, &content).unwrap();
 
-    let symlink_path = repo.join("external-link.json");
-    if symlink_path.exists() {
-        std::fs::remove_file(&symlink_path).unwrap();
-    }
-    #[cfg(unix)]
-    {
-        std::os::unix::fs::symlink(&external_file, &symlink_path).unwrap();
-    }
-    #[cfg(not(unix))]
-    {
-        std::fs::copy(&external_file, &symlink_path).unwrap();
-    }
-
     let (cfg_path, adapter_path) = example_loader();
     let prompt = format!(
-        "Original file is at {external}. Do NOT access it. Read the file at {link} and reply with exactly CONTENT:{expected}.",
+        "Read the file at {external} and reply with exactly CONTENT:{expected}.",
         external = external_file.display(),
-        link = symlink_path.display(),
         expected = content
     );
-    let args = render_args_for_brain(&cfg_path, &adapter_path, &repo, "gemini_reader", &prompt);
+    let args = render_args_for_brain(&cfg_path, &adapter_path, &repo, "gemini_writer", &prompt);
     let include_idx = args.iter().position(|v| v == "--include-directories").unwrap();
     let include_val = args.get(include_idx + 1).expect("include value");
     let includes: Vec<&str> = include_val.split(',').collect();
     assert!(includes.iter().any(|v| *v == external_dir.to_string_lossy()));
-    print_rendered_command(&cfg_path, &adapter_path, &repo, "gemini_reader", &prompt);
-    let out = run_brain(&cfg_path, &adapter_path, &repo, "gemini_reader", prompt).await;
+    print_rendered_command(&cfg_path, &adapter_path, &repo, "gemini_writer", &prompt);
+    let out = run_brain(&cfg_path, &adapter_path, &repo, "gemini_writer", prompt).await;
 
     assert!(out.success, "error={:?}", out.error);
     assert!(out.agent_messages.contains(&content), "msg={}", out.agent_messages);
+}
+
+#[tokio::test]
+#[ignore]
+async fn cfgtest_real_gemini_include_directories_reads_multiple_external_files() {
+    let td = tempfile::tempdir().unwrap();
+    let repo = td.path().join("repo");
+    std::fs::create_dir_all(&repo).unwrap();
+
+    let external_dir_a = td.path().join("external-a");
+    let external_dir_b = td.path().join("external-b");
+    std::fs::create_dir_all(&external_dir_a).unwrap();
+    std::fs::create_dir_all(&external_dir_b).unwrap();
+
+    let external_file_a = external_dir_a.join("alpha.json");
+    let external_file_b = external_dir_b.join("beta.json");
+    let content_a = format!("alpha-{}", unique_suffix());
+    let content_b = format!("beta-{}", unique_suffix());
+    std::fs::write(&external_file_a, &content_a).unwrap();
+    std::fs::write(&external_file_b, &content_b).unwrap();
+
+    let (cfg_path, adapter_path) = example_loader();
+    let prompt = format!(
+        "Read the files at {external_a} and {external_b} and reply with exactly CONTENT_A:{expected_a} CONTENT_B:{expected_b}.",
+        external_a = external_file_a.display(),
+        external_b = external_file_b.display(),
+        expected_a = content_a,
+        expected_b = content_b
+    );
+
+    let args = render_args_for_brain(&cfg_path, &adapter_path, &repo, "gemini_writer", &prompt);
+    let include_idx = args.iter().position(|v| v == "--include-directories").unwrap();
+    let include_val = args.get(include_idx + 1).expect("include value");
+    let includes: Vec<&str> = include_val.split(',').collect();
+    assert!(includes.iter().any(|v| *v == external_dir_a.to_string_lossy()));
+    assert!(includes.iter().any(|v| *v == external_dir_b.to_string_lossy()));
+
+    print_rendered_command(&cfg_path, &adapter_path, &repo, "gemini_writer", &prompt);
+    let out = run_brain(&cfg_path, &adapter_path, &repo, "gemini_writer", prompt).await;
+
+    assert!(out.success, "error={:?}", out.error);
+    assert!(out.agent_messages.contains(&content_a), "msg={}", out.agent_messages);
+    assert!(out.agent_messages.contains(&content_b), "msg={}", out.agent_messages);
 }

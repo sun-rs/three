@@ -93,6 +93,8 @@ pub struct BackendConfig {
 pub struct AdapterConfig {
     pub args_template: Vec<String>,
     pub output_parser: OutputParserConfig,
+    #[serde(default)]
+    pub filesystem_capabilities: Option<Vec<FilesystemCapability>>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -185,7 +187,6 @@ pub struct Capabilities {
 pub enum FilesystemCapability {
     ReadOnly,
     ReadWrite,
-    Deny,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
@@ -306,6 +307,16 @@ impl VibeConfig {
             .adapter
             .clone()
             .ok_or_else(|| anyhow!("missing adapter config for backend: {backend_id}"))?;
+        if let Some(allowed) = adapter.filesystem_capabilities.as_ref() {
+            if !allowed.contains(&brain_cfg.capabilities.filesystem) {
+                return Err(anyhow!(
+                    "unsupported filesystem capability {:?} for backend '{}' (brain '{}')",
+                    brain_cfg.capabilities.filesystem,
+                    backend_id,
+                    brain_id
+                ));
+            }
+        }
         let options = if model_id == "default" {
             if variant.is_some() {
                 return Err(anyhow!("model 'default' does not support variants"));
@@ -545,6 +556,36 @@ mod tests {
     }
 
     #[test]
+    fn rejects_filesystem_deny_capability() {
+        let td = tempfile::tempdir().unwrap();
+        let path = td.path().join("cfg.json");
+        std::fs::write(
+            &path,
+            r#"{
+  "backend": {
+    "gemini": {
+      "models": {
+        "gemini-3-pro-preview": {}
+      }
+    }
+  },
+  "brains": {
+    "reader": {
+      "model": "gemini/gemini-3-pro-preview",
+      "personas": {"description":"d","prompt":"p"},
+      "capabilities": {"filesystem":"deny","shell":"deny","network":"deny","tools":["read"]}
+    }
+  }
+}"#,
+        )
+        .unwrap();
+
+        let err = VibeConfig::load(&path).unwrap_err();
+        let msg = format!("{:?}", err);
+        assert!(msg.contains("deny"), "unexpected error: {msg}");
+    }
+
+    #[test]
     fn loads_brain_from_brains_map() {
         let td = tempfile::tempdir().unwrap();
         let path = td.path().join("cfg.json");
@@ -561,7 +602,7 @@ mod tests {
     "oracle": {
       "model": "opencode/opencode-gpt-5",
       "personas": {"description":"d","prompt":"p"},
-      "capabilities": {"filesystem":"read-only","shell":"deny","network":"deny","tools":["read"]}
+      "capabilities": {"filesystem":"read-write","shell":"deny","network":"deny","tools":["read"]}
     }
   }
 }"#,
@@ -661,6 +702,187 @@ mod tests {
             args.contains(&"json".to_string()),
             "expected json in gemini adapter args"
         );
+    }
+
+    #[test]
+    fn example_opencode_adapter_uses_sessionid_part_text() {
+        let (_, path) = crate::test_utils::example_config_paths();
+        let catalog = AdapterCatalog::load(&path).unwrap();
+        let opencode = catalog.adapters.get("opencode").expect("opencode adapter");
+
+        match &opencode.output_parser {
+            OutputParserConfig::JsonStream {
+                session_id_path,
+                message_path,
+                pick,
+            } => {
+                assert_eq!(session_id_path, "part.sessionID");
+                assert_eq!(message_path, "part.text");
+                assert_eq!(pick.unwrap_or_default(), OutputPick::Last);
+            }
+            other => panic!("expected json_stream output parser, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn example_claude_adapter_uses_json_object() {
+        let (_, path) = crate::test_utils::example_config_paths();
+        let catalog = AdapterCatalog::load(&path).unwrap();
+        let claude = catalog.adapters.get("claude").expect("claude adapter");
+        assert_eq!(
+            claude.filesystem_capabilities.as_deref(),
+            Some(&[FilesystemCapability::ReadOnly, FilesystemCapability::ReadWrite][..])
+        );
+        match &claude.output_parser {
+            OutputParserConfig::JsonObject {
+                session_id_path,
+                message_path,
+            } => {
+                assert_eq!(session_id_path.as_deref(), Some("session_id"));
+                assert_eq!(message_path, "result");
+            }
+            other => panic!("expected json_object output parser, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn example_codex_adapter_uses_json_stream() {
+        let (_, path) = crate::test_utils::example_config_paths();
+        let catalog = AdapterCatalog::load(&path).unwrap();
+        let codex = catalog.adapters.get("codex").expect("codex adapter");
+        assert_eq!(
+            codex.filesystem_capabilities.as_deref(),
+            Some(&[FilesystemCapability::ReadOnly, FilesystemCapability::ReadWrite][..])
+        );
+        match &codex.output_parser {
+            OutputParserConfig::JsonStream {
+                session_id_path,
+                message_path,
+                pick,
+            } => {
+                assert_eq!(session_id_path, "thread_id");
+                assert_eq!(message_path, "item.text");
+                assert_eq!(pick.unwrap_or_default(), OutputPick::Last);
+            }
+            other => panic!("expected json_stream output parser, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn example_kimi_adapter_uses_text_output() {
+        let (_, path) = crate::test_utils::example_config_paths();
+        let catalog = AdapterCatalog::load(&path).unwrap();
+        let kimi = catalog.adapters.get("kimi").expect("kimi adapter");
+        assert_eq!(
+            kimi.filesystem_capabilities.as_deref(),
+            Some(&[FilesystemCapability::ReadWrite][..])
+        );
+        match &kimi.output_parser {
+            OutputParserConfig::Text => {}
+            other => panic!("expected text output parser, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn example_config_resolves_opencode_brains() {
+        let td = tempfile::tempdir().unwrap();
+        let repo = td.path().join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+
+        let (cfg_path, adapter_path) = crate::test_utils::example_config_paths();
+        let loader =
+            ConfigLoader::new(Some(cfg_path)).with_adapter_path(Some(adapter_path));
+        let cfg = loader.load_for_repo(&repo).unwrap().unwrap();
+
+        let reader = cfg.resolve_profile(Some("opencode_reader"), None).unwrap();
+        assert_eq!(reader.profile.backend_id, "opencode");
+        assert_eq!(reader.profile.model, "cchGemini/gemini-3-flash-preview");
+        assert_eq!(reader.profile.capabilities.filesystem, FilesystemCapability::ReadWrite);
+
+        let writer = cfg.resolve_profile(Some("opencode_writer"), None).unwrap();
+        assert_eq!(writer.profile.backend_id, "opencode");
+        assert_eq!(writer.profile.model, "cchGemini/gemini-3-flash-preview");
+        assert_eq!(writer.profile.capabilities.filesystem, FilesystemCapability::ReadWrite);
+    }
+
+    #[test]
+    fn rejects_readonly_for_opencode_on_resolve_only() {
+        let td = tempfile::tempdir().unwrap();
+        let repo = td.path().join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        let path = td.path().join("cfg.json");
+        write_cfg(
+            &path,
+            r#"{
+  "backend": {
+    "opencode": {
+      "models": { "opencode-gpt-5": {} }
+    }
+  },
+  "brains": {
+    "reader": {
+      "model": "opencode/opencode-gpt-5",
+      "personas": { "description": "d", "prompt": "p" },
+      "capabilities": { "filesystem": "read-only", "shell": "deny", "network": "deny", "tools": ["read"] }
+    },
+    "writer": {
+      "model": "opencode/opencode-gpt-5",
+      "personas": { "description": "d", "prompt": "p" },
+      "capabilities": { "filesystem": "read-write", "shell": "deny", "network": "deny", "tools": ["read"] }
+    }
+  }
+}"#,
+        );
+
+        let (_, adapter_path) = crate::test_utils::example_config_paths();
+        let loader = ConfigLoader::new(Some(path)).with_adapter_path(Some(adapter_path));
+        let cfg = loader.load_for_repo(&repo).unwrap().unwrap();
+        let writer = cfg.resolve_profile(Some("writer"), None).unwrap();
+        assert_eq!(writer.profile.backend_id, "opencode");
+
+        let err = cfg.resolve_profile(Some("reader"), None).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("filesystem capability") && msg.contains("opencode"), "unexpected error: {msg}");
+    }
+
+    #[test]
+    fn rejects_readonly_for_kimi_on_resolve_only() {
+        let td = tempfile::tempdir().unwrap();
+        let repo = td.path().join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        let path = td.path().join("cfg.json");
+        write_cfg(
+            &path,
+            r#"{
+  "backend": {
+    "kimi": {
+      "models": { "kimi-k2": {} }
+    }
+  },
+  "brains": {
+    "reader": {
+      "model": "kimi/kimi-k2",
+      "personas": { "description": "d", "prompt": "p" },
+      "capabilities": { "filesystem": "read-only", "shell": "deny", "network": "deny", "tools": ["read"] }
+    },
+    "writer": {
+      "model": "kimi/kimi-k2",
+      "personas": { "description": "d", "prompt": "p" },
+      "capabilities": { "filesystem": "read-write", "shell": "deny", "network": "deny", "tools": ["read"] }
+    }
+  }
+}"#,
+        );
+
+        let (_, adapter_path) = crate::test_utils::example_config_paths();
+        let loader = ConfigLoader::new(Some(path)).with_adapter_path(Some(adapter_path));
+        let cfg = loader.load_for_repo(&repo).unwrap().unwrap();
+        let writer = cfg.resolve_profile(Some("writer"), None).unwrap();
+        assert_eq!(writer.profile.backend_id, "kimi");
+
+        let err = cfg.resolve_profile(Some("reader"), None).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("filesystem capability") && msg.contains("kimi"), "unexpected error: {msg}");
     }
 
     fn write_cfg(path: &Path, json: &str) {
@@ -932,12 +1154,12 @@ mod tests {
     "opencode_reader": {
       "model": "opencode/opencode-gpt-5",
       "personas": { "description": "d", "prompt": "p" },
-      "capabilities": { "filesystem": "read-only", "shell": "deny", "network": "deny", "tools": ["read"] }
+      "capabilities": { "filesystem": "read-write", "shell": "deny", "network": "deny", "tools": ["read"] }
     },
     "kimi_reader": {
       "model": "kimi/kimi-k2",
       "personas": { "description": "d", "prompt": "p" },
-      "capabilities": { "filesystem": "read-only", "shell": "deny", "network": "deny", "tools": ["read"] }
+      "capabilities": { "filesystem": "read-write", "shell": "deny", "network": "deny", "tools": ["read"] }
     },
     "claude_writer": {
       "model": "claude/claude-opus-4-5-20251101",
@@ -1035,12 +1257,12 @@ mod tests {
     "opencode_reader": {
       "model": "opencode/opencode-gpt-5",
       "personas": { "description": "d", "prompt": "p" },
-      "capabilities": { "filesystem": "read-only", "shell": "deny", "network": "deny", "tools": ["read"] }
+      "capabilities": { "filesystem": "read-write", "shell": "deny", "network": "deny", "tools": ["read"] }
     },
     "kimi_reader": {
       "model": "kimi/kimi-k2",
       "personas": { "description": "d", "prompt": "p" },
-      "capabilities": { "filesystem": "read-only", "shell": "deny", "network": "deny", "tools": ["read"] }
+      "capabilities": { "filesystem": "read-write", "shell": "deny", "network": "deny", "tools": ["read"] }
     },
     "claude_writer": {
       "model": "claude/claude-opus-4-5-20251101",
@@ -1138,12 +1360,12 @@ mod tests {
     "opencode_reader": {
       "model": "opencode/opencode-gpt-5",
       "personas": { "description": "d", "prompt": "p" },
-      "capabilities": { "filesystem": "read-only", "shell": "deny", "network": "deny", "tools": ["read"] }
+      "capabilities": { "filesystem": "read-write", "shell": "deny", "network": "deny", "tools": ["read"] }
     },
     "kimi_reader": {
       "model": "kimi/kimi-k2",
       "personas": { "description": "d", "prompt": "p" },
-      "capabilities": { "filesystem": "read-only", "shell": "deny", "network": "deny", "tools": ["read"] }
+      "capabilities": { "filesystem": "read-write", "shell": "deny", "network": "deny", "tools": ["read"] }
     },
     "claude_writer": {
       "model": "claude/claude-opus-4-5-20251101",
@@ -1241,12 +1463,12 @@ mod tests {
     "opencode_reader": {
       "model": "opencode/opencode-gpt-5",
       "personas": { "description": "d", "prompt": "p" },
-      "capabilities": { "filesystem": "read-only", "shell": "deny", "network": "deny", "tools": ["read"] }
+      "capabilities": { "filesystem": "read-write", "shell": "deny", "network": "deny", "tools": ["read"] }
     },
     "kimi_reader": {
       "model": "kimi/kimi-k2",
       "personas": { "description": "d", "prompt": "p" },
-      "capabilities": { "filesystem": "read-only", "shell": "deny", "network": "deny", "tools": ["read"] }
+      "capabilities": { "filesystem": "read-write", "shell": "deny", "network": "deny", "tools": ["read"] }
     },
     "claude_writer": {
       "model": "claude/claude-opus-4-5-20251101",
@@ -1282,7 +1504,7 @@ mod tests {
 
         let reader = cfg.resolve_profile(Some("opencode_reader"), None).unwrap();
         assert_eq!(reader.profile.backend_id, "opencode");
-        assert_eq!(reader.profile.capabilities.filesystem, FilesystemCapability::ReadOnly);
+        assert_eq!(reader.profile.capabilities.filesystem, FilesystemCapability::ReadWrite);
         assert_eq!(reader.profile.capabilities.shell, ShellCapability::Deny);
         assert_eq!(reader.profile.capabilities.network, NetworkCapability::Deny);
 
@@ -1344,12 +1566,12 @@ mod tests {
     "opencode_reader": {
       "model": "opencode/opencode-gpt-5",
       "personas": { "description": "d", "prompt": "p" },
-      "capabilities": { "filesystem": "read-only", "shell": "deny", "network": "deny", "tools": ["read"] }
+      "capabilities": { "filesystem": "read-write", "shell": "deny", "network": "deny", "tools": ["read"] }
     },
     "kimi_reader": {
       "model": "kimi/kimi-k2",
       "personas": { "description": "d", "prompt": "p" },
-      "capabilities": { "filesystem": "read-only", "shell": "deny", "network": "deny", "tools": ["read"] }
+      "capabilities": { "filesystem": "read-write", "shell": "deny", "network": "deny", "tools": ["read"] }
     },
     "claude_writer": {
       "model": "claude/claude-opus-4-5-20251101",
@@ -1385,7 +1607,7 @@ mod tests {
 
         let reader = cfg.resolve_profile(Some("kimi_reader"), None).unwrap();
         assert_eq!(reader.profile.backend_id, "kimi");
-        assert_eq!(reader.profile.capabilities.filesystem, FilesystemCapability::ReadOnly);
+        assert_eq!(reader.profile.capabilities.filesystem, FilesystemCapability::ReadWrite);
         assert_eq!(reader.profile.capabilities.shell, ShellCapability::Deny);
         assert_eq!(reader.profile.capabilities.network, NetworkCapability::Deny);
 

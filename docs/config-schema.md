@@ -53,6 +53,9 @@ Each adapter entry contains:
   independently; empty results are dropped. Do **not** put multiple CLI tokens into
   a single entry.
 - `output_parser`: How to extract session id and agent message from stdout.
+- `filesystem_capabilities` (optional): List of supported filesystem values
+  (`read-only`, `read-write`). If provided, brains requesting a value
+  outside this list will fail during `resolve_profile`.
 
 Template context variables (stable names):
 
@@ -101,20 +104,23 @@ Rules:
 
 - `model`: A string in the form `backend/model@variant` (variant optional).
   - Example: `codex/gpt-5.2-codex@xhigh`
+  - The `model` segment may include `/` (e.g. `opencode/cchGemini/gemini-3-flash-preview`).
+    Only the first `/` splits `backend` from `model`.
   - Special case: `backend/default` uses the CLI's default model and may omit a backend.models entry.
     Variants are not allowed for `default`.
 - `personas`: Required object with:
   - `description` (string)
   - `prompt` (string)
 - `capabilities`: Required object with unified capability semantics:
-  - `filesystem`: `read-only` | `read-write` | `deny`
+  - `filesystem`: `read-only` | `read-write`
   - `shell`: `allow` | `deny`
   - `network`: `allow` | `deny`
   - `tools`: list of tool names or `*`
 
 `capabilities` are semantic and are mapped to CLI flags in `adapter.args_template`.
-If a capability cannot be mapped for a backend, the system emits a warning and
-continues (no hard failure).
+Adapters may optionally declare `filesystem_capabilities` to enforce supported values.
+If the list exists and a brain requests a filesystem capability not in the list,
+`resolve_profile` fails for that brain (config load still succeeds).
 
 ## Brain → CLI mapping (summary)
 

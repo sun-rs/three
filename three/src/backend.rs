@@ -326,6 +326,16 @@ mod tests {
         catalog.adapters.get("codex").expect("codex adapter").clone()
     }
 
+    fn load_opencode_adapter() -> AdapterConfig {
+        let (_, adapter_path) = crate::test_utils::example_config_paths();
+        let catalog = AdapterCatalog::load(&adapter_path).expect("load adapter catalog");
+        catalog
+            .adapters
+            .get("opencode")
+            .expect("opencode adapter")
+            .clone()
+    }
+
     fn base_capabilities(filesystem: FilesystemCapability) -> Capabilities {
         Capabilities {
             filesystem,
@@ -351,6 +361,21 @@ mod tests {
             model: model.to_string(),
             options,
             capabilities: base_capabilities(filesystem),
+            timeout_secs: 5,
+        })
+        .unwrap()
+    }
+
+    fn render_opencode_args(model: &str, session_id: Option<&str>, repo: &Path) -> Vec<String> {
+        render_args(&GenericOptions {
+            backend_id: "opencode".to_string(),
+            adapter: load_opencode_adapter(),
+            prompt: "ping".to_string(),
+            workdir: repo.to_path_buf(),
+            session_id: session_id.map(|s| s.to_string()),
+            model: model.to_string(),
+            options: BTreeMap::new(),
+            capabilities: base_capabilities(FilesystemCapability::ReadOnly),
             timeout_secs: 5,
         })
         .unwrap()
@@ -531,6 +556,36 @@ mod tests {
 
         assert!(!args.contains(&"--model".to_string()));
         assert!(!args.contains(&"default".to_string()));
+    }
+
+    #[test]
+    fn cfgtest_render_opencode_default_model_skips_model_flag() {
+        let td = tempfile::tempdir().unwrap();
+        let repo = td.path().join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+
+        let args = render_opencode_args("default", None, &repo);
+        assert_eq!(args.first().map(String::as_str), Some("run"));
+        assert!(args.contains(&"--format".to_string()));
+        assert!(args.contains(&"json".to_string()));
+        assert!(!args.contains(&"-m".to_string()));
+        assert!(!args.contains(&"default".to_string()));
+    }
+
+    #[test]
+    fn cfgtest_render_opencode_session_includes_format_and_session() {
+        let td = tempfile::tempdir().unwrap();
+        let repo = td.path().join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+
+        let args = render_opencode_args("opencode-gpt-5", Some("sess-1"), &repo);
+        assert_eq!(args.first().map(String::as_str), Some("run"));
+        assert!(args.contains(&"-m".to_string()));
+        assert!(args.contains(&"opencode-gpt-5".to_string()));
+        assert!(args.contains(&"-s".to_string()));
+        assert!(args.contains(&"sess-1".to_string()));
+        assert!(args.contains(&"--format".to_string()));
+        assert!(args.contains(&"json".to_string()));
     }
 
     #[test]

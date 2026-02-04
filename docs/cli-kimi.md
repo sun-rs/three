@@ -60,11 +60,12 @@ Kimi 的 `--output-format text` 为纯文本输出，three 使用 `text` 解析�
 
 ## 读写权限（重要）
 
-- `--print` 模式会**隐式开启 yolo/auto‑approve**，Kimi CLI 没有可用的 `--no-yolo` 或等价关闭方式。
-- 因此 **read‑only 无法被强制**，仅作为提示约束。
-- three 的 read‑only 仅在 prompt 末尾追加「不允许写文件」作为 guardrail。
+- `--print` 模式会**隐式开启 yolo/auto-approve**，Kimi CLI 没有可用的 `--no-yolo` 或等价关闭方式。
+- 因此 **read-only 无法被强制**。
+- three 通过 adapter 的 `filesystem_capabilities` 做**按 brain 校验**：
+  - `kimi` 仅声明 `read-write`，因此 `filesystem: read-only` 会在解析 brain 时失败。
 
-结论：**Kimi 的 read‑only 是 best‑effort 语义**，不能保证不写入。
+结论：**Kimi 不支持 read‑only**。如需软约束，请使用 `read-write` 并在 prompt 中自行加 guardrail。
 
 ## Model 默认值（重要）
 

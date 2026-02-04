@@ -12,36 +12,13 @@ use three::{
     test_utils::example_config_paths,
 };
 
-fn kimi_test_lock() -> &'static Mutex<()> {
+fn opencode_test_lock() -> &'static Mutex<()> {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
     LOCK.get_or_init(|| Mutex::new(()))
 }
 
-fn resolve_test_command() -> String {
-    std::env::var("KIMI_BIN").unwrap_or_else(|_| "kimi".to_string())
-}
-
-fn write_kimi_config(path: &Path) {
-    let cfg = r#"{
-  "backend": {
-    "kimi": {
-      "models": {}
-    }
-  },
-  "brains": {
-    "reader": {
-      "model": "kimi/default",
-      "personas": { "description": "d", "prompt": "p" },
-      "capabilities": { "filesystem": "read-write", "shell": "deny", "network": "deny", "tools": ["read"] }
-    },
-    "writer": {
-      "model": "kimi/default",
-      "personas": { "description": "d", "prompt": "p" },
-      "capabilities": { "filesystem": "read-write", "shell": "allow", "network": "allow", "tools": ["*"] }
-    }
-  }
-}"#;
-    std::fs::write(path, cfg).unwrap();
+fn example_loader() -> (std::path::PathBuf, std::path::PathBuf) {
+    example_config_paths()
 }
 
 fn render_args_for_brain(
@@ -71,7 +48,7 @@ fn render_args_for_brain(
 
 fn print_rendered_command(cfg_path: &Path, adapter_path: &Path, repo: &Path, brain: &str, prompt: &str) {
     let args = render_args_for_brain(cfg_path, adapter_path, repo, brain, prompt);
-    let command = resolve_test_command();
+    let command = "opencode";
     eprintln!("cfgtest command for brain '{brain}':");
     eprintln!("  cmd: {command}");
     eprintln!("  args: {args:?}");
@@ -113,16 +90,16 @@ async fn run_brain(
         .unwrap()
 }
 
+fn prompt_date() -> String {
+    "Return exactly DATE:YYYY-MM-DD for today's date. No other text.".to_string()
+}
+
 fn unique_suffix() -> String {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos();
     format!("{nanos}")
-}
-
-fn prompt_date() -> String {
-    "Return exactly DATE:YYYY-MM-DD for today's date. No other text.".to_string()
 }
 
 fn prompt_create_file(path: &Path) -> String {
@@ -134,58 +111,27 @@ fn prompt_create_file(path: &Path) -> String {
 
 #[tokio::test]
 #[ignore]
-async fn cfgtest_real_kimi_smoke() {
-    let _lock = kimi_test_lock().lock().await;
+async fn cfgtest_real_opencode_smoke() {
+    let _lock = opencode_test_lock().lock().await;
     let td = tempfile::tempdir().unwrap();
     let repo = td.path().join("repo");
     std::fs::create_dir_all(&repo).unwrap();
 
-    let cfg_path = td.path().join("config.json");
-    write_kimi_config(&cfg_path);
-    let (_, adapter_path) = example_config_paths();
-
+    let (cfg_path, adapter_path) = example_loader();
     let prompt = prompt_date();
-    print_rendered_command(&cfg_path, &adapter_path, &repo, "reader", &prompt);
-    let out = run_brain(&cfg_path, &adapter_path, &repo, "reader", prompt).await;
+    print_rendered_command(&cfg_path, &adapter_path, &repo, "opencode_writer", &prompt);
+    let out = run_brain(&cfg_path, &adapter_path, &repo, "opencode_writer", prompt).await;
 
     assert!(out.success, "error={:?}", out.error);
     let re = Regex::new(r"DATE:\d{4}-\d{2}-\d{2}").unwrap();
     assert!(re.is_match(&out.agent_messages), "msg={}", out.agent_messages);
+    assert_ne!(out.backend_session_id.trim(), "stateless", "session={}", out.backend_session_id);
 }
 
 #[tokio::test]
 #[ignore]
-async fn cfgtest_real_kimi_reader_create_file() {
-    let _lock = kimi_test_lock().lock().await;
-    let td = tempfile::tempdir().unwrap();
-    let repo = td.path().join("repo");
-    std::fs::create_dir_all(&repo).unwrap();
-
-    let filename = format!("readonly-{}.txt", unique_suffix());
-    let target = repo.join(filename);
-    if target.exists() {
-        std::fs::remove_file(&target).unwrap();
-    }
-
-    let cfg_path = td.path().join("config.json");
-    write_kimi_config(&cfg_path);
-    let (_, adapter_path) = example_config_paths();
-
-    let prompt = prompt_create_file(&target);
-    print_rendered_command(&cfg_path, &adapter_path, &repo, "reader", &prompt);
-    let out = run_brain(&cfg_path, &adapter_path, &repo, "reader", prompt).await;
-
-    assert!(out.success, "error={:?}", out.error);
-    assert!(out.agent_messages.contains("RESULT:true"), "msg={}", out.agent_messages);
-    assert!(target.exists(), "expected file to be created");
-    let content = std::fs::read_to_string(&target).unwrap_or_default();
-    assert!(content.contains("hello"), "content={}", content);
-}
-
-#[tokio::test]
-#[ignore]
-async fn cfgtest_real_kimi_readwrite_create_file() {
-    let _lock = kimi_test_lock().lock().await;
+async fn cfgtest_real_opencode_readwrite_create_file() {
+    let _lock = opencode_test_lock().lock().await;
     let td = tempfile::tempdir().unwrap();
     let repo = td.path().join("repo");
     std::fs::create_dir_all(&repo).unwrap();
@@ -196,13 +142,10 @@ async fn cfgtest_real_kimi_readwrite_create_file() {
         std::fs::remove_file(&target).unwrap();
     }
 
-    let cfg_path = td.path().join("config.json");
-    write_kimi_config(&cfg_path);
-    let (_, adapter_path) = example_config_paths();
-
+    let (cfg_path, adapter_path) = example_loader();
     let prompt = prompt_create_file(&target);
-    print_rendered_command(&cfg_path, &adapter_path, &repo, "writer", &prompt);
-    let out = run_brain(&cfg_path, &adapter_path, &repo, "writer", prompt).await;
+    print_rendered_command(&cfg_path, &adapter_path, &repo, "opencode_writer", &prompt);
+    let out = run_brain(&cfg_path, &adapter_path, &repo, "opencode_writer", prompt).await;
 
     assert!(out.success, "error={:?}", out.error);
     assert!(out.agent_messages.contains("RESULT:true"), "msg={}", out.agent_messages);

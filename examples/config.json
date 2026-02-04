@@ -52,7 +52,7 @@
     },
     "opencode": {
       "models": {
-        "opencode-gpt-5": {}
+        "cchGemini/gemini-3-flash-preview": {}
       }
     },
     "kimi": {
@@ -105,6 +105,32 @@
       "model": "codex/gpt-5.2-codex",
       "personas": {
         "description": "Codex write-enabled brain using gpt-5.2-codex.",
+        "prompt": "You can create and modify files when required. Keep changes minimal and verifiable."
+      },
+      "capabilities": {
+        "filesystem": "read-write",
+        "shell": "allow",
+        "network": "allow",
+        "tools": ["*"]
+      }
+    },
+    "opencode_reader": {
+      "model": "opencode/cchGemini/gemini-3-flash-preview",
+      "personas": {
+        "description": "OpenCode read-focused brain using cchGemini/gemini-3-flash-preview (read-only unsupported).",
+        "prompt": "You are a repo reader. Summarize structure and point to exact files and symbols. Do not invent."
+      },
+      "capabilities": {
+        "filesystem": "read-write",
+        "shell": "deny",
+        "network": "deny",
+        "tools": ["read", "glob", "grep"]
+      }
+    },
+    "opencode_writer": {
+      "model": "opencode/cchGemini/gemini-3-flash-preview",
+      "personas": {
+        "description": "OpenCode write-enabled brain using cchGemini/gemini-3-flash-preview.",
         "prompt": "You can create and modify files when required. Keep changes minimal and verifiable."
       },
       "capabilities": {
