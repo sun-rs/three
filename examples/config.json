@@ -3,18 +3,16 @@
     "codex": {
       "models": {
         "gpt-5.2": {
-          "options": {
-            "model_reasoning_effort": "high"
-          },
+          "options": {},
           "variants": {
             "low": {
               "model_reasoning_effort": "low"
             },
-            "fast": {
-              "model_reasoning_effort": "low"
-            },
             "medium": {
               "model_reasoning_effort": "medium"
+            },
+            "high": {
+              "model_reasoning_effort": "high"
             },
             "xhigh": {
               "model_reasoning_effort": "xhigh"
@@ -22,15 +20,16 @@
           }
         },
         "gpt-5.2-codex": {
-          "options": {
-            "model_reasoning_effort": "high"
-          },
+          "options": {},
           "variants": {
-            "fast": {
+            "low": {
               "model_reasoning_effort": "low"
             },
             "medium": {
               "model_reasoning_effort": "medium"
+            },
+            "high": {
+              "model_reasoning_effort": "high"
             },
             "xhigh": {
               "model_reasoning_effort": "xhigh"
@@ -41,6 +40,8 @@
     },
     "claude": {
       "models": {
+        "claude-haiku-4-5-20251001": {},
+        "claude-sonnet-4-5-20250929": {},
         "claude-opus-4-5-20251101": {}
       }
     },
@@ -50,18 +51,62 @@
         "gemini-3-flash-preview": {}
       }
     },
+    "kimi": {
+      "models": {}
+    },
     "opencode": {
       "models": {
-        "cchGemini/gemini-3-flash-preview": {}
-      }
-    },
-    "kimi": {
-      "models": {
-        "kimi-k2": {}
+        "kimi-for-coding/k2p5": {},
+        "cchGemini/gemini-3-flash-low": {},
+        "cchGemini/gemini-3-flash-medium": {},
+        "cchGemini/gemini-3-flash-high": {},
+        "cchGemini/gemini-3-pro-low": {},
+        "cchGemini/gemini-3-pro-medium": {},
+        "cchGemini/gemini-3-pro-high": {}
       }
     }
   },
   "roles": {
+    "codex_reader": {
+      "model": "codex/gpt-5.2@xhigh",
+      "personas": {
+        "description": "Codex read-only role for deep analysis (gpt-5.2@xhigh).",
+        "prompt": "You are a careful reviewer. Read and analyze only; do not propose file edits unless asked."
+      },
+      "capabilities": {
+        "filesystem": "read-only"
+      }
+    },
+    "codex_writer": {
+      "model": "codex/gpt-5.2-codex@high",
+      "personas": {
+        "description": "Codex write-enabled role using gpt-5.2-codex@high.",
+        "prompt": "You can create and modify files when required. Keep changes minimal and verifiable."
+      },
+      "capabilities": {
+        "filesystem": "read-write"
+      }
+    },
+    "claude_reader": {
+      "model": "claude/claude-opus-4-5-20251101",
+      "personas": {
+        "description": "Claude read-only role for deep analysis (Opus 4.5).",
+        "prompt": "You are a repo reader. Summarize structure and point to exact files and symbols. Do not invent."
+      },
+      "capabilities": {
+        "filesystem": "read-only"
+      }
+    },
+    "claude_writer": {
+      "model": "claude/claude-sonnet-4-5-20250929",
+      "personas": {
+        "description": "Claude write-enabled role for fast edits (Sonnet 4.5).",
+        "prompt": "You can create and modify files when required. Keep changes minimal and verifiable."
+      },
+      "capabilities": {
+        "filesystem": "read-write"
+      }
+    },
     "gemini_reader": {
       "model": "gemini/gemini-3-pro-preview",
       "personas": {
@@ -69,10 +114,7 @@
         "prompt": "You are a repo reader. Summarize structure and point to exact files and symbols. Do not invent."
       },
       "capabilities": {
-        "filesystem": "read-only",
-        "shell": "deny",
-        "network": "deny",
-        "tools": ["read", "glob", "grep"]
+        "filesystem": "read-only"
       }
     },
     "gemini_writer": {
@@ -82,62 +124,47 @@
         "prompt": "You can create and modify files when required. Keep changes minimal and verifiable."
       },
       "capabilities": {
-        "filesystem": "read-write",
-        "shell": "allow",
-        "network": "allow",
-        "tools": ["*"]
+        "filesystem": "read-write"
       }
     },
-    "codex_reader": {
-      "model": "codex/gpt-5.2@low",
+    "kimi_reader": {
+      "model": "kimi/default",
       "personas": {
-        "description": "Codex read-only role using gpt-5.2@low.",
-        "prompt": "You are a careful reviewer. Read and analyze only; do not propose file edits unless asked."
-      },
-      "capabilities": {
-        "filesystem": "read-only",
-        "shell": "deny",
-        "network": "deny",
-        "tools": ["read", "glob", "grep"]
-      }
-    },
-    "codex_writer": {
-      "model": "codex/gpt-5.2-codex",
-      "personas": {
-        "description": "Codex write-enabled role using gpt-5.2-codex.",
-        "prompt": "You can create and modify files when required. Keep changes minimal and verifiable."
-      },
-      "capabilities": {
-        "filesystem": "read-write",
-        "shell": "allow",
-        "network": "allow",
-        "tools": ["*"]
-      }
-    },
-    "opencode_reader": {
-      "model": "opencode/cchGemini/gemini-3-flash-preview",
-      "personas": {
-        "description": "OpenCode read-focused role using cchGemini/gemini-3-flash-preview (read-only unsupported).",
+        "description": "Kimi read-focused role (read-only unsupported).",
         "prompt": "You are a repo reader. Summarize structure and point to exact files and symbols. Do not invent."
       },
       "capabilities": {
-        "filesystem": "read-write",
-        "shell": "deny",
-        "network": "deny",
-        "tools": ["read", "glob", "grep"]
+        "filesystem": "read-write"
       }
     },
-    "opencode_writer": {
-      "model": "opencode/cchGemini/gemini-3-flash-preview",
+    "kimi_writer": {
+      "model": "kimi/default",
       "personas": {
-        "description": "OpenCode write-enabled role using cchGemini/gemini-3-flash-preview.",
+        "description": "Kimi write-enabled role.",
         "prompt": "You can create and modify files when required. Keep changes minimal and verifiable."
       },
       "capabilities": {
-        "filesystem": "read-write",
-        "shell": "allow",
-        "network": "allow",
-        "tools": ["*"]
+        "filesystem": "read-write"
+      }
+    },
+    "opencode_reader": {
+      "model": "opencode/cchGemini/gemini-3-pro-high",
+      "personas": {
+        "description": "OpenCode read-focused role (read-only unsupported).",
+        "prompt": "You are a repo reader. Summarize structure and point to exact files and symbols. Do not invent."
+      },
+      "capabilities": {
+        "filesystem": "read-write"
+      }
+    },
+    "opencode_writer": {
+      "model": "opencode/cchGemini/gemini-3-flash-high",
+      "personas": {
+        "description": "OpenCode write-enabled role for fast edits.",
+        "prompt": "You can create and modify files when required. Keep changes minimal and verifiable."
+      },
+      "capabilities": {
+        "filesystem": "read-write"
       }
     }
   }

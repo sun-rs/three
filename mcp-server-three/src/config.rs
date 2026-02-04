@@ -165,8 +165,11 @@ pub struct PersonaConfig {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Capabilities {
     pub filesystem: FilesystemCapability,
+    #[serde(default = "default_shell_capability")]
     pub shell: ShellCapability,
+    #[serde(default = "default_network_capability")]
     pub network: NetworkCapability,
+    #[serde(default = "default_tools")]
     pub tools: Vec<String>,
 }
 
@@ -177,6 +180,10 @@ pub enum FilesystemCapability {
     ReadWrite,
 }
 
+fn default_shell_capability() -> ShellCapability {
+    ShellCapability::Deny
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ShellCapability {
@@ -184,11 +191,19 @@ pub enum ShellCapability {
     Deny,
 }
 
+fn default_network_capability() -> NetworkCapability {
+    NetworkCapability::Deny
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum NetworkCapability {
     Allow,
     Deny,
+}
+
+fn default_tools() -> Vec<String> {
+    Vec::new()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
@@ -537,6 +552,41 @@ mod tests {
     }
 
     #[test]
+    fn defaults_missing_capability_fields() {
+        let td = tempfile::tempdir().unwrap();
+        let path = td.path().join("cfg.json");
+        std::fs::write(
+            &path,
+            r#"{
+  "backend": {
+    "codex": {
+      "models": {
+        "gpt-5.2": {}
+      }
+    }
+  },
+  "roles": {
+    "reader": {
+      "model": "codex/gpt-5.2",
+      "personas": {"description":"d","prompt":"p"},
+      "capabilities": {"filesystem":"read-only"}
+    }
+  }
+}"#,
+        )
+        .unwrap();
+
+        let repo = td.path().join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        let loader = ConfigLoader::new(Some(path));
+        let cfg = loader.load_for_repo(&repo).unwrap().unwrap();
+        let resolved = cfg.resolve_profile(Some("reader")).unwrap();
+        assert_eq!(resolved.profile.capabilities.shell, ShellCapability::Deny);
+        assert_eq!(resolved.profile.capabilities.network, NetworkCapability::Deny);
+        assert!(resolved.profile.capabilities.tools.is_empty());
+    }
+
+    #[test]
     fn loads_role_from_roles_map() {
         let td = tempfile::tempdir().unwrap();
         let path = td.path().join("cfg.json");
@@ -765,12 +815,12 @@ mod tests {
 
         let reader = cfg.resolve_profile(Some("opencode_reader")).unwrap();
         assert_eq!(reader.profile.backend_id, "opencode");
-        assert_eq!(reader.profile.model, "cchGemini/gemini-3-flash-preview");
+        assert_eq!(reader.profile.model, "cchGemini/gemini-3-pro-high");
         assert_eq!(reader.profile.capabilities.filesystem, FilesystemCapability::ReadWrite);
 
         let writer = cfg.resolve_profile(Some("opencode_writer")).unwrap();
         assert_eq!(writer.profile.backend_id, "opencode");
-        assert_eq!(writer.profile.model, "cchGemini/gemini-3-flash-preview");
+        assert_eq!(writer.profile.model, "cchGemini/gemini-3-flash-high");
         assert_eq!(writer.profile.capabilities.filesystem, FilesystemCapability::ReadWrite);
     }
 

@@ -111,9 +111,9 @@ Rules:
   - `prompt` (string)
 - `capabilities`: Required object with unified capability semantics:
   - `filesystem`: `read-only` | `read-write`
-  - `shell`: `allow` | `deny`
-  - `network`: `allow` | `deny`
-  - `tools`: list of tool names or `*`
+  - `shell` (optional, default `deny`): `allow` | `deny`
+  - `network` (optional, default `deny`): `allow` | `deny`
+  - `tools` (optional, default `[]`): list of tool names or `*`
 
 `capabilities` are semantic and are mapped to CLI flags in `adapter.args_template`.
 Adapters may optionally declare `filesystem_capabilities` to enforce supported values.
