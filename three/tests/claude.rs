@@ -7,7 +7,6 @@ use three::{
     config::ConfigLoader,
     server::{VibeArgs, VibeServer},
     session_store::SessionStore,
-    test_utils::example_config_path,
 };
 
 fn resolve_test_command() -> String {
@@ -131,7 +130,6 @@ async fn cfgtest_real_claude_smoke() {
 
     let cfg_path = td.path().join("config.json");
     write_claude_config(&cfg_path);
-    let cfg_path = example_config_path();
 
     let prompt = prompt_date();
     print_rendered_command(&cfg_path, &repo, "reader", &prompt);
@@ -157,7 +155,6 @@ async fn cfgtest_real_claude_readonly_create_file() {
 
     let cfg_path = td.path().join("config.json");
     write_claude_config(&cfg_path);
-    let cfg_path = example_config_path();
 
     let prompt = prompt_create_file(&target);
     print_rendered_command(&cfg_path, &repo, "reader", &prompt);
@@ -187,7 +184,6 @@ async fn cfgtest_real_claude_readwrite_create_file() {
 
     let cfg_path = td.path().join("config.json");
     write_claude_config(&cfg_path);
-    let cfg_path = example_config_path();
 
     let prompt = prompt_create_file(&target);
     print_rendered_command(&cfg_path, &repo, "writer", &prompt);

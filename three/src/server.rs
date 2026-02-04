@@ -948,7 +948,7 @@ mod tests {
         assert!(log_txt.lines().any(|l| l.contains("resume sess-1")));
 
         let role_id = "oracle";
-        let key = SessionStore::compute_key(&repo.canonicalize().unwrap(), "default", role_id);
+        let key = SessionStore::compute_key(&repo.canonicalize().unwrap(), role_id, role_id);
         let rec = store.get(&key).unwrap().unwrap();
         assert_eq!(rec.backend_session_id, "sess-2");
     }

@@ -9,7 +9,6 @@ use three::{
     config::ConfigLoader,
     server::{VibeArgs, VibeServer},
     session_store::SessionStore,
-    test_utils::example_config_path,
 };
 
 fn kimi_test_lock() -> &'static Mutex<()> {
@@ -139,7 +138,6 @@ async fn cfgtest_real_kimi_smoke() {
 
     let cfg_path = td.path().join("config.json");
     write_kimi_config(&cfg_path);
-    let cfg_path = example_config_path();
 
     let prompt = prompt_date();
     print_rendered_command(&cfg_path, &repo, "reader", &prompt);
@@ -166,7 +164,6 @@ async fn cfgtest_real_kimi_reader_create_file() {
 
     let cfg_path = td.path().join("config.json");
     write_kimi_config(&cfg_path);
-    let cfg_path = example_config_path();
 
     let prompt = prompt_create_file(&target);
     print_rendered_command(&cfg_path, &repo, "reader", &prompt);
@@ -195,7 +192,6 @@ async fn cfgtest_real_kimi_readwrite_create_file() {
 
     let cfg_path = td.path().join("config.json");
     write_kimi_config(&cfg_path);
-    let cfg_path = example_config_path();
 
     let prompt = prompt_create_file(&target);
     print_rendered_command(&cfg_path, &repo, "writer", &prompt);

@@ -7,7 +7,6 @@ use three::{
     config::ConfigLoader,
     server::{VibeArgs, VibeServer},
     session_store::SessionStore,
-    test_utils::example_config_path,
 };
 
 fn resolve_test_command(backend_id: &str) -> String {
@@ -138,7 +137,6 @@ async fn cfgtest_real_codex_smoke() {
 
     let cfg_path = td.path().join("config.json");
     write_codex_config(&cfg_path);
-    let cfg_path = example_config_path();
 
     let prompt = prompt_date();
     print_rendered_command(&cfg_path, &repo, "reader", &prompt);
@@ -164,7 +162,6 @@ async fn cfgtest_real_codex_readonly_create_file() {
 
     let cfg_path = td.path().join("config.json");
     write_codex_config(&cfg_path);
-    let cfg_path = example_config_path();
 
     let prompt = prompt_create_file(&target);
     print_rendered_command(&cfg_path, &repo, "reader", &prompt);
@@ -194,7 +191,6 @@ async fn cfgtest_real_codex_readwrite_create_file() {
 
     let cfg_path = td.path().join("config.json");
     write_codex_config(&cfg_path);
-    let cfg_path = example_config_path();
 
     let prompt = prompt_create_file(&target);
     print_rendered_command(&cfg_path, &repo, "writer", &prompt);
