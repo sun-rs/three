@@ -23,17 +23,17 @@ fn resolve_test_command(backend_id: &str) -> String {
     }
 }
 
-fn render_args_for_brain(
+fn render_args_for_role(
     cfg_path: &Path,
     adapter_path: &Path,
     repo: &Path,
-    brain: &str,
+    role: &str,
     prompt: &str,
 ) -> Vec<String> {
     let loader =
         ConfigLoader::new(Some(cfg_path.to_path_buf()));
     let cfg = loader.load_for_repo(repo).unwrap().unwrap();
-    let rp = cfg.resolve_profile(Some(brain), None).unwrap();
+    let rp = cfg.resolve_profile(Some(role)).unwrap();
     backend::render_args(&backend::GenericOptions {
         backend_id: rp.profile.backend_id.clone(),
         adapter: rp.profile.adapter.clone(),
@@ -48,19 +48,19 @@ fn render_args_for_brain(
     .unwrap()
 }
 
-fn print_rendered_command(cfg_path: &Path, adapter_path: &Path, repo: &Path, brain: &str, prompt: &str) {
-    let args = render_args_for_brain(cfg_path, adapter_path, repo, brain, prompt);
+fn print_rendered_command(cfg_path: &Path, adapter_path: &Path, repo: &Path, role: &str, prompt: &str) {
+    let args = render_args_for_role(cfg_path, adapter_path, repo, role, prompt);
     let command = resolve_test_command("gemini");
-    eprintln!("cfgtest command for brain '{brain}':");
+    eprintln!("cfgtest command for role '{role}':");
     eprintln!("  cmd: {command}");
     eprintln!("  args: {args:?}");
 }
 
-async fn run_brain(
+async fn run_role(
     cfg_path: &Path,
     adapter_path: &Path,
     repo: &Path,
-    brain: &str,
+    role: &str,
     prompt: String,
 ) -> three::server::VibeOutput {
     let store = SessionStore::new(repo.join("sessions.json"));
@@ -75,8 +75,7 @@ async fn run_brain(
             VibeArgs {
                 prompt,
                 cd: repo.to_string_lossy().to_string(),
-                role: Some(brain.to_string()),
-                brain: None,
+                role: Some(role.to_string()),
                 backend: None,
                 model: None,
                 reasoning_effort: None,
@@ -121,7 +120,7 @@ async fn cfgtest_real_gemini_3flash_smoke() {
     let (cfg_path, adapter_path) = example_loader();
     let prompt = prompt_date();
     print_rendered_command(&cfg_path, &adapter_path, &repo, "gemini_writer", &prompt);
-    let out = run_brain(&cfg_path, &adapter_path, &repo, "gemini_writer", prompt).await;
+    let out = run_role(&cfg_path, &adapter_path, &repo, "gemini_writer", prompt).await;
 
     assert!(out.success, "error={:?}", out.error);
     let re = Regex::new(r"DATE:\d{4}-\d{2}-\d{2}").unwrap();
@@ -138,7 +137,7 @@ async fn cfgtest_real_gemini_3pro_smoke() {
     let (cfg_path, adapter_path) = example_loader();
     let prompt = prompt_date();
     print_rendered_command(&cfg_path, &adapter_path, &repo, "gemini_reader", &prompt);
-    let out = run_brain(&cfg_path, &adapter_path, &repo, "gemini_reader", prompt).await;
+    let out = run_role(&cfg_path, &adapter_path, &repo, "gemini_reader", prompt).await;
 
     assert!(out.success, "error={:?}", out.error);
     let re = Regex::new(r"DATE:\d{4}-\d{2}-\d{2}").unwrap();
@@ -161,7 +160,7 @@ async fn cfgtest_real_gemini_readonly_create_file() {
     let (cfg_path, adapter_path) = example_loader();
     let prompt = prompt_create_file(&target);
     print_rendered_command(&cfg_path, &adapter_path, &repo, "gemini_reader", &prompt);
-    let out = run_brain(&cfg_path, &adapter_path, &repo, "gemini_reader", prompt).await;
+    let out = run_role(&cfg_path, &adapter_path, &repo, "gemini_reader", prompt).await;
 
     assert!(out.success, "error={:?}", out.error);
     let reported_true = out.agent_messages.contains("RESULT:true");
@@ -188,7 +187,7 @@ async fn cfgtest_real_gemini_readwrite_create_file() {
     let (cfg_path, adapter_path) = example_loader();
     let prompt = prompt_create_file(&target);
     print_rendered_command(&cfg_path, &adapter_path, &repo, "gemini_writer", &prompt);
-    let out = run_brain(&cfg_path, &adapter_path, &repo, "gemini_writer", prompt).await;
+    let out = run_role(&cfg_path, &adapter_path, &repo, "gemini_writer", prompt).await;
 
     assert!(out.success, "error={:?}", out.error);
     assert!(out.agent_messages.contains("RESULT:true"), "msg={}", out.agent_messages);
@@ -216,13 +215,13 @@ async fn cfgtest_real_gemini_include_directories_reads_external_file() {
         external = external_file.display(),
         expected = content
     );
-    let args = render_args_for_brain(&cfg_path, &adapter_path, &repo, "gemini_writer", &prompt);
+    let args = render_args_for_role(&cfg_path, &adapter_path, &repo, "gemini_writer", &prompt);
     let include_idx = args.iter().position(|v| v == "--include-directories").unwrap();
     let include_val = args.get(include_idx + 1).expect("include value");
     let includes: Vec<&str> = include_val.split(',').collect();
     assert!(includes.iter().any(|v| *v == external_dir.to_string_lossy()));
     print_rendered_command(&cfg_path, &adapter_path, &repo, "gemini_writer", &prompt);
-    let out = run_brain(&cfg_path, &adapter_path, &repo, "gemini_writer", prompt).await;
+    let out = run_role(&cfg_path, &adapter_path, &repo, "gemini_writer", prompt).await;
 
     assert!(out.success, "error={:?}", out.error);
     assert!(out.agent_messages.contains(&content), "msg={}", out.agent_messages);
@@ -256,7 +255,7 @@ async fn cfgtest_real_gemini_include_directories_reads_multiple_external_files()
         expected_b = content_b
     );
 
-    let args = render_args_for_brain(&cfg_path, &adapter_path, &repo, "gemini_writer", &prompt);
+    let args = render_args_for_role(&cfg_path, &adapter_path, &repo, "gemini_writer", &prompt);
     let include_idx = args.iter().position(|v| v == "--include-directories").unwrap();
     let include_val = args.get(include_idx + 1).expect("include value");
     let includes: Vec<&str> = include_val.split(',').collect();
@@ -264,7 +263,7 @@ async fn cfgtest_real_gemini_include_directories_reads_multiple_external_files()
     assert!(includes.iter().any(|v| *v == external_dir_b.to_string_lossy()));
 
     print_rendered_command(&cfg_path, &adapter_path, &repo, "gemini_writer", &prompt);
-    let out = run_brain(&cfg_path, &adapter_path, &repo, "gemini_writer", prompt).await;
+    let out = run_role(&cfg_path, &adapter_path, &repo, "gemini_writer", prompt).await;
 
     assert!(out.success, "error={:?}", out.error);
     assert!(out.agent_messages.contains(&content_a), "msg={}", out.agent_messages);

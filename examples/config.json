@@ -61,7 +61,7 @@
       }
     }
   },
-  "brains": {
+  "roles": {
     "gemini_reader": {
       "model": "gemini/gemini-3-pro-preview",
       "personas": {

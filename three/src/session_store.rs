@@ -13,7 +13,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub struct SessionRecord {
     pub repo_root: String,
     pub role: String,
-    pub brain_id: String,
+    pub role_id: String,
     pub backend: Backend,
     pub backend_session_id: String,
     /// For MCP sampling-based backends (e.g. Claude), we persist a short conversation history
@@ -73,13 +73,13 @@ impl SessionStore {
             .join("sessions.json")
     }
 
-    pub fn compute_key(repo_root: &Path, role: &str, brain_id: &str) -> String {
+    pub fn compute_key(repo_root: &Path, role: &str, role_id: &str) -> String {
         let mut h = Sha256::new();
         h.update(repo_root.to_string_lossy().as_bytes());
         h.update(b"\n");
         h.update(role.as_bytes());
         h.update(b"\n");
-        h.update(brain_id.as_bytes());
+        h.update(role_id.as_bytes());
         hex::encode(h.finalize())
     }
 
@@ -178,10 +178,10 @@ mod tests {
     #[test]
     fn compute_key_is_stable() {
         let repo = PathBuf::from("/tmp/repo");
-        let k1 = SessionStore::compute_key(&repo, "role", "brain");
-        let k2 = SessionStore::compute_key(&repo, "role", "brain");
+        let k1 = SessionStore::compute_key(&repo, "role", "role");
+        let k2 = SessionStore::compute_key(&repo, "role", "role");
         assert_eq!(k1, k2);
-        assert_ne!(k1, SessionStore::compute_key(&repo, "role", "brain2"));
+        assert_ne!(k1, SessionStore::compute_key(&repo, "role", "role2"));
     }
 
     #[test]
@@ -199,7 +199,7 @@ mod tests {
                 SessionRecord {
                     repo_root: repo.to_string_lossy().to_string(),
                     role: "impl".to_string(),
-                    brain_id: "codex:default:default".to_string(),
+                    role_id: "codex:default:default".to_string(),
                     backend: Backend::Codex,
                     backend_session_id: "sess-1".to_string(),
                     sampling_history: Vec::new(),

@@ -26,10 +26,6 @@ pub struct VibeArgs {
     #[serde(default)]
     pub role: Option<String>,
 
-    /// Brain profile id (optional, resolved via config when present)
-    #[serde(default)]
-    pub brain: Option<String>,
-
     /// Backend override when not using config (codex|gemini)
     #[serde(default)]
     pub backend: Option<String>,
@@ -80,7 +76,7 @@ pub struct RoundtableArgs {
     /// Participant list
     pub participants: Vec<RoundtableParticipant>,
 
-    /// Optional moderator (synthesis brain). If omitted, returns contributions only.
+    /// Optional moderator (synthesis role). If omitted, returns contributions only.
     #[serde(default)]
     pub moderator: Option<RoundtableModerator>,
 
@@ -104,9 +100,6 @@ pub struct RoundtableParticipant {
     pub role: Option<String>,
 
     #[serde(default)]
-    pub brain: Option<String>,
-
-    #[serde(default)]
     pub backend: Option<String>,
 
     #[serde(default)]
@@ -123,8 +116,6 @@ pub struct RoundtableParticipant {
 pub struct RoundtableModerator {
     #[serde(default)]
     pub role: Option<String>,
-    #[serde(default)]
-    pub brain: Option<String>,
     #[serde(default)]
     pub backend: Option<String>,
     #[serde(default)]
@@ -146,7 +137,7 @@ pub struct VibeOutput {
     pub success: bool,
     pub backend: String,
     pub role: String,
-    pub brain_id: String,
+    pub role_id: String,
     pub model: Option<String>,
     pub session_key: String,
     pub resumed: bool,
@@ -177,13 +168,13 @@ struct InfoOutput {
     success: bool,
     cd: String,
     config_sources: Vec<String>,
-    brains: Vec<InfoBrain>,
+    roles: Vec<InfoRole>,
     error: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
-struct InfoBrain {
-    brain: String,
+struct InfoRole {
+    role: String,
     backend: String,
     model: String,
     description: String,
@@ -197,7 +188,7 @@ struct RoundtableContribution {
     name: String,
     role: String,
     backend: String,
-    brain_id: String,
+    role_id: String,
     resumed: bool,
     backend_session_id: String,
     agent_messages: String,
@@ -225,7 +216,7 @@ impl VibeServer {
 impl VibeServer {
     /// Route a prompt to a configured backend (codex|gemini) with session reuse.
     ///
-    /// Best practice: pass `cd` as your repo root and provide `role` + `brain` (or `role` only when config maps it).
+    /// Best practice: pass `cd` as your repo root and provide `role`.
     #[tool(name = "three", description = "Route a prompt to configured backends with session reuse")]
     async fn vibe(
         &self,
@@ -238,10 +229,10 @@ impl VibeServer {
         Ok(CallToolResult::success(vec![Content::text(json)]))
     }
 
-    /// Run a multi-brain discussion on a topic and optionally synthesize.
+    /// Run a multi-role discussion on a topic and optionally synthesize.
     #[tool(
         name = "roundtable",
-        description = "Fan-out a topic to multiple brains and optionally synthesize a conclusion"
+        description = "Fan-out a topic to multiple roles and optionally synthesize a conclusion"
     )]
     async fn roundtable(
         &self,
@@ -341,7 +332,6 @@ impl VibeServer {
                         prompt,
                         cd,
                         role: Some(role_for_out.clone()),
-                        brain: p.brain,
                         backend: p.backend,
                         model: p.model,
                         reasoning_effort: p.reasoning_effort,
@@ -367,7 +357,7 @@ impl VibeServer {
                         name,
                         role: out.role.clone(),
                         backend: out.backend.clone(),
-                        brain_id: out.brain_id.clone(),
+                        role_id: out.role_id.clone(),
                         resumed: out.resumed,
                         backend_session_id: out.backend_session_id.clone(),
                         agent_messages: out.agent_messages.clone(),
@@ -380,7 +370,7 @@ impl VibeServer {
                         name,
                         role,
                         backend: "error".to_string(),
-                        brain_id: "".to_string(),
+                        role_id: "".to_string(),
                         resumed: false,
                         backend_session_id: "".to_string(),
                         agent_messages: "".to_string(),
@@ -393,7 +383,7 @@ impl VibeServer {
                         name: "".to_string(),
                         role: "".to_string(),
                         backend: "error".to_string(),
-                        brain_id: "".to_string(),
+                        role_id: "".to_string(),
                         resumed: false,
                         backend_session_id: "".to_string(),
                         agent_messages: "".to_string(),
@@ -428,7 +418,6 @@ impl VibeServer {
                     prompt,
                     cd: repo_root.to_string_lossy().to_string(),
                     role: Some(role),
-                    brain: m.brain,
                     backend: m.backend,
                     model: m.model,
                     reasoning_effort: m.reasoning_effort,
@@ -473,7 +462,7 @@ impl VibeServer {
         Ok(CallToolResult::success(vec![Content::text(json)]))
     }
 
-    /// Show effective config (roles -> brains -> models) without calling any LLM.
+    /// Show effective config (roles -> models) without calling any LLM.
     #[tool(name = "info", description = "Show effective three role/model mapping for this directory")]
     async fn info(
         &self,
@@ -527,7 +516,7 @@ impl VibeServer {
                 success: false,
                 cd: repo_root.to_string_lossy().to_string(),
                 config_sources: sources,
-                brains: Vec::new(),
+                roles: Vec::new(),
                 error: Some("no config found (create ~/.config/three/config.json)".to_string()),
             };
             let json = serde_json::to_string(&out).map_err(|e| {
@@ -536,19 +525,19 @@ impl VibeServer {
             return Ok(CallToolResult::success(vec![Content::text(json)]));
         };
 
-        let mut brains: Vec<InfoBrain> = Vec::new();
+        let mut roles: Vec<InfoRole> = Vec::new();
         let mut errors: Vec<String> = Vec::new();
 
-        for (brain_id, brain_cfg) in &cfg.brains {
-            let resolved = match cfg.resolve_profile(None, Some(brain_id)) {
+        for (role_id, role_cfg) in &cfg.roles {
+            let resolved = match cfg.resolve_profile(Some(role_id)) {
                 Ok(r) => r,
                 Err(e) => {
-                    errors.push(format!("brain '{brain_id}' invalid: {e}"));
+                    errors.push(format!("role '{role_id}' invalid: {e}"));
                     continue;
                 }
             };
 
-            let prompt_raw = brain_cfg.personas.prompt.trim();
+            let prompt_raw = role_cfg.personas.prompt.trim();
             let (prompt_present, prompt_len, prompt_preview) = if prompt_raw.is_empty() {
                 (false, None, None)
             } else {
@@ -562,11 +551,11 @@ impl VibeServer {
                 (true, Some(len), Some(preview))
             };
 
-            brains.push(InfoBrain {
-                brain: brain_id.to_string(),
+            roles.push(InfoRole {
+                role: role_id.to_string(),
                 backend: resolved.profile.backend_id.clone(),
                 model: resolved.profile.model.clone(),
-                description: brain_cfg.personas.description.clone(),
+                description: role_cfg.personas.description.clone(),
                 prompt_present,
                 prompt_len,
                 prompt_preview,
@@ -577,7 +566,7 @@ impl VibeServer {
             success: errors.is_empty(),
             cd: repo_root.to_string_lossy().to_string(),
             config_sources: sources,
-            brains,
+            roles,
             error: if errors.is_empty() {
                 None
             } else {
@@ -642,13 +631,13 @@ impl VibeServer {
         })?;
 
         let rp = cfg
-            .resolve_profile(args.role.as_deref(), args.brain.as_deref())
+            .resolve_profile(args.role.as_deref())
             .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
         let mut prompt_text = args.prompt.clone();
         if !prompt_text.contains("[THREE_PERSONA") {
             let ptext = rp.profile.personas.prompt.trim();
             if !ptext.is_empty() {
-                let bid = rp.brain_id.as_str();
+                let bid = rp.role_id.as_str();
                 prompt_text = format!(
                     "[THREE_PERSONA id={bid}]
 {ptext}
@@ -664,7 +653,7 @@ impl VibeServer {
             .as_ref()
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| SessionStore::compute_key(&repo_root, &role, &rp.brain_id));
+            .unwrap_or_else(|| SessionStore::compute_key(&repo_root, &role, &rp.role_id));
         let _key_lock = self
             .store
             .acquire_key_lock(&session_key)
@@ -712,7 +701,7 @@ impl VibeServer {
                 SessionRecord {
                     repo_root: repo_root.to_string_lossy().to_string(),
                     role: role.clone(),
-                    brain_id: rp.brain_id.clone(),
+                    role_id: rp.role_id.clone(),
                     backend: rp.profile.backend,
                     backend_session_id: backend_session_id.clone(),
                     sampling_history: Vec::new(),
@@ -781,7 +770,7 @@ impl VibeServer {
             success: error.is_none(),
             backend: rp.profile.backend_id.clone(),
             role,
-            brain_id: rp.brain_id,
+            role_id: rp.role_id,
             model: Some(rp.profile.model.clone()),
             session_key,
             resumed,
@@ -870,7 +859,7 @@ mod tests {
       }
     }
   },
-  "brains": {
+  "roles": {
     "oracle": {
       "model": "codex/gpt-5.2-codex@xhigh",
       "personas": { "description": "d", "prompt": "p" },
@@ -921,8 +910,7 @@ mod tests {
         let args1 = VibeArgs {
             prompt: "first".to_string(),
             cd: repo.to_string_lossy().to_string(),
-            role: None,
-            brain: Some("oracle".to_string()),
+            role: Some("oracle".to_string()),
             backend: None,
             model: None,
             reasoning_effort: None,
@@ -941,8 +929,7 @@ mod tests {
         let args2 = VibeArgs {
             prompt: "second".to_string(),
             cd: repo.to_string_lossy().to_string(),
-            role: None,
-            brain: Some("oracle".to_string()),
+            role: Some("oracle".to_string()),
             backend: None,
             model: None,
             reasoning_effort: None,
@@ -961,8 +948,8 @@ mod tests {
         let log_txt = std::fs::read_to_string(&log).unwrap();
         assert!(log_txt.lines().any(|l| l.contains("resume sess-1")));
 
-        let brain_id = "oracle";
-        let key = SessionStore::compute_key(&repo.canonicalize().unwrap(), "default", brain_id);
+        let role_id = "oracle";
+        let key = SessionStore::compute_key(&repo.canonicalize().unwrap(), "default", role_id);
         let rec = store.get(&key).unwrap().unwrap();
         assert_eq!(rec.backend_session_id, "sess-2");
     }
@@ -988,8 +975,7 @@ mod tests {
             .run_vibe_internal(None, VibeArgs {
                 prompt: "ping".to_string(),
                 cd: repo.to_string_lossy().to_string(),
-                role: None,
-                brain: Some("oracle".to_string()),
+            role: Some("oracle".to_string()),
                 backend: None,
                 model: None,
                 reasoning_effort: None,
@@ -1044,8 +1030,7 @@ mod tests {
             .run_vibe_internal(None, VibeArgs {
                 prompt: "do".to_string(),
                 cd: repo.to_string_lossy().to_string(),
-                role: None,
-                brain: Some("oracle".to_string()),
+            role: Some("oracle".to_string()),
                 backend: None,
                 model: None,
                 reasoning_effort: None,
@@ -1135,8 +1120,7 @@ mod tests {
             .run_vibe_internal(None, VibeArgs {
                 prompt: "do".to_string(),
                 cd: repo.to_string_lossy().to_string(),
-                role: None,
-                brain: Some("oracle".to_string()),
+            role: Some("oracle".to_string()),
                 backend: None,
                 model: None,
                 reasoning_effort: None,

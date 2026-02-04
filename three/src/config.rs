@@ -8,7 +8,7 @@ use crate::adapter_catalog::embedded_adapter_catalog;
 #[derive(Debug, Clone, Deserialize)]
 pub struct VibeConfig {
     pub backend: BTreeMap<String, BackendConfig>,
-    pub brains: BTreeMap<String, BrainConfig>,
+    pub roles: BTreeMap<String, RoleConfig>,
 }
 
 #[derive(Debug, Clone)]
@@ -150,7 +150,7 @@ pub enum OptionValue {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct BrainConfig {
+pub struct RoleConfig {
     pub model: String,
     pub personas: PersonaConfig,
     pub capabilities: Capabilities,
@@ -225,7 +225,7 @@ impl Backend {
 }
 
 #[derive(Debug, Clone)]
-pub struct BrainProfile {
+pub struct RoleProfile {
     pub backend: Backend,
     pub backend_id: String,
     pub model: String,
@@ -255,15 +255,15 @@ impl VibeConfig {
             .ok_or_else(|| anyhow!("invalid config: expected a JSON object"))?;
 
         for key in obj.keys() {
-            if key != "backend" && key != "brains" {
+            if key != "backend" && key != "roles" {
                 return Err(anyhow!("invalid config: unexpected top-level key: {key}"));
             }
         }
         if !obj.contains_key("backend") {
             return Err(anyhow!("invalid config: missing 'backend' object"));
         }
-        if !obj.contains_key("brains") {
-            return Err(anyhow!("invalid config: missing 'brains' object"));
+        if !obj.contains_key("roles") {
+            return Err(anyhow!("invalid config: missing 'roles' object"));
         }
 
         let cfg: VibeConfig = serde_json::from_value(v)
@@ -275,17 +275,14 @@ impl VibeConfig {
     pub fn resolve_profile(
         &self,
         role: Option<&str>,
-        brain: Option<&str>,
     ) -> Result<ResolvedProfile> {
-        let brain_id = brain.or(role).ok_or_else(|| {
-            anyhow!("either 'brain' or 'role' must be provided when using config")
-        })?;
-        let brain_cfg = self
-            .brains
-            .get(brain_id)
-            .ok_or_else(|| anyhow!("unknown brain profile: {brain_id}"))?;
+        let role_id = role.ok_or_else(|| anyhow!("'role' must be provided when using config"))?;
+        let role_cfg = self
+            .roles
+            .get(role_id)
+            .ok_or_else(|| anyhow!("unknown role profile: {role_id}"))?;
 
-        let (backend_id, model_id, variant) = parse_brain_model_ref(&brain_cfg.model)?;
+        let (backend_id, model_id, variant) = parse_role_model_ref(&role_cfg.model)?;
         let backend = parse_backend_key(&backend_id)?;
         let backend_cfg = self
             .backend
@@ -296,12 +293,12 @@ impl VibeConfig {
             .clone()
             .ok_or_else(|| anyhow!("missing adapter config for backend: {backend_id}"))?;
         if let Some(allowed) = adapter.filesystem_capabilities.as_ref() {
-            if !allowed.contains(&brain_cfg.capabilities.filesystem) {
+            if !allowed.contains(&role_cfg.capabilities.filesystem) {
                 return Err(anyhow!(
-                    "unsupported filesystem capability {:?} for backend '{}' (brain '{}')",
-                    brain_cfg.capabilities.filesystem,
+                    "unsupported filesystem capability {:?} for backend '{}' (role '{}')",
+                    role_cfg.capabilities.filesystem,
                     backend_id,
-                    brain_id
+                    role_id
                 ));
             }
         }
@@ -323,14 +320,14 @@ impl VibeConfig {
         };
 
         Ok(ResolvedProfile {
-            brain_id: brain_id.to_string(),
-            profile: BrainProfile {
+            role_id: role_id.to_string(),
+            profile: RoleProfile {
                 backend,
                 backend_id: backend_id.clone(),
                 model: model_id,
                 options,
-                capabilities: brain_cfg.capabilities.clone(),
-                personas: brain_cfg.personas.clone(),
+                capabilities: role_cfg.capabilities.clone(),
+                personas: role_cfg.personas.clone(),
                 adapter,
             },
         })
@@ -340,17 +337,17 @@ impl VibeConfig {
         for backend_id in self.backend.keys() {
             parse_backend_key(backend_id)?;
         }
-        for (brain_id, brain) in &self.brains {
-            let (backend_id, _model_id, variant) = parse_brain_model_ref(&brain.model)
-                .with_context(|| format!("invalid brain model reference: {brain_id}"))?;
+        for (role_id, role) in &self.roles {
+            let (backend_id, _model_id, variant) = parse_role_model_ref(&role.model)
+                .with_context(|| format!("invalid role model reference: {role_id}"))?;
             if let Some(v) = variant.as_deref() {
                 if v.trim().is_empty() {
-                    return Err(anyhow!("invalid brain model reference: {brain_id}"));
+                    return Err(anyhow!("invalid role model reference: {role_id}"));
                 }
             }
             if !self.backend.contains_key(&backend_id) {
                 return Err(anyhow!(
-                    "brain {brain_id} references missing backend: {backend_id}"
+                    "role {role_id} references missing backend: {backend_id}"
                 ));
             }
         }
@@ -366,15 +363,15 @@ fn parse_backend_key(provider_id: &str) -> Result<Backend> {
     })
 }
 
-fn parse_brain_model_ref(s: &str) -> Result<(String, String, Option<String>)> {
+fn parse_role_model_ref(s: &str) -> Result<(String, String, Option<String>)> {
     let (backend, rest) = s
         .split_once('/')
-        .ok_or_else(|| anyhow!("brain model reference must be 'backend/model@variant'"))?;
+        .ok_or_else(|| anyhow!("role model reference must be 'backend/model@variant'"))?;
     let backend = backend.trim();
     let rest = rest.trim();
     if backend.is_empty() || rest.is_empty() {
         return Err(anyhow!(
-            "brain model reference must be 'backend/model@variant'"
+            "role model reference must be 'backend/model@variant'"
         ));
     }
 
@@ -384,7 +381,7 @@ fn parse_brain_model_ref(s: &str) -> Result<(String, String, Option<String>)> {
     };
     if model.is_empty() {
         return Err(anyhow!(
-            "brain model reference must be 'backend/model@variant'"
+            "role model reference must be 'backend/model@variant'"
         ));
     }
     Ok((backend.to_string(), model.to_string(), variant))
@@ -413,8 +410,8 @@ fn resolve_model_options(
 
 #[derive(Debug, Clone)]
 pub struct ResolvedProfile {
-    pub brain_id: String,
-    pub profile: BrainProfile,
+    pub role_id: String,
+    pub profile: RoleProfile,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -466,7 +463,7 @@ fn merge_config(mut base: VibeConfig, overlay: VibeConfig) -> VibeConfig {
             }
         }
     }
-    base.brains.extend(overlay.brains);
+    base.roles.extend(overlay.roles);
     base
 }
 
@@ -500,7 +497,7 @@ mod tests {
       }
     }
   },
-  "brains": {
+  "roles": {
     "oracle": {
       "model": "unknown/m",
       "personas": {"description":"d","prompt":"p"},
@@ -520,6 +517,24 @@ mod tests {
     }
 
     #[test]
+    fn rejects_missing_roles_key() {
+        let td = tempfile::tempdir().unwrap();
+        let path = td.path().join("cfg.json");
+        std::fs::write(
+            &path,
+            r#"{
+  "backend": {
+    "codex": { "models": { "gpt-5.2": {} } }
+  }
+}"#,
+        )
+        .unwrap();
+
+        let err = VibeConfig::load(&path).unwrap_err();
+        assert!(err.to_string().contains("missing 'roles'"));
+    }
+
+    #[test]
     fn rejects_filesystem_deny_capability() {
         let td = tempfile::tempdir().unwrap();
         let path = td.path().join("cfg.json");
@@ -533,7 +548,7 @@ mod tests {
       }
     }
   },
-  "brains": {
+  "roles": {
     "reader": {
       "model": "gemini/gemini-3-pro-preview",
       "personas": {"description":"d","prompt":"p"},
@@ -550,7 +565,7 @@ mod tests {
     }
 
     #[test]
-    fn loads_brain_from_brains_map() {
+    fn loads_role_from_roles_map() {
         let td = tempfile::tempdir().unwrap();
         let path = td.path().join("cfg.json");
         std::fs::write(
@@ -562,7 +577,7 @@ mod tests {
       "models": { "opencode-gpt-5": {} }
     }
   },
-  "brains": {
+  "roles": {
     "oracle": {
       "model": "opencode/opencode-gpt-5",
       "personas": {"description":"d","prompt":"p"},
@@ -574,8 +589,8 @@ mod tests {
         .unwrap();
 
         let cfg = VibeConfig::load(&path).unwrap();
-        let resolved = cfg.resolve_profile(None, Some("oracle")).unwrap();
-        assert_eq!(resolved.brain_id, "oracle");
+        let resolved = cfg.resolve_profile(Some("oracle")).unwrap();
+        assert_eq!(resolved.role_id, "oracle");
         assert_eq!(resolved.profile.backend_id, "opencode");
     }
 
@@ -608,7 +623,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_brain_model_without_slash_separator() {
+    fn rejects_role_model_without_slash_separator() {
         let td = tempfile::tempdir().unwrap();
         let path = td.path().join("cfg.json");
         std::fs::write(
@@ -620,7 +635,7 @@ mod tests {
       "models": { "gpt-5.2": {} }
     }
   },
-  "brains": {
+  "roles": {
     "oracle": {
       "model": "codex.gpt-5.2",
       "personas": {"description":"d","prompt":"p"},
@@ -633,7 +648,7 @@ mod tests {
 
         let err = VibeConfig::load(&path).unwrap_err();
         assert!(
-            err.to_string().contains("brain model reference"),
+            err.to_string().contains("role model reference"),
             "unexpected error: {err}"
         );
     }
@@ -654,7 +669,7 @@ mod tests {
       "models": {}
     }
   },
-  "brains": {
+  "roles": {
     "reader": {
       "model": "kimi/default",
       "personas": { "description": "d", "prompt": "p" },
@@ -666,7 +681,7 @@ mod tests {
 
         let loader = ConfigLoader::new(Some(cfg_path));
         let cfg = loader.load_for_repo(&repo).unwrap().unwrap();
-        let reader = cfg.resolve_profile(Some("reader"), None).unwrap();
+        let reader = cfg.resolve_profile(Some("reader")).unwrap();
         assert_eq!(reader.profile.model, "default");
         assert!(reader.profile.options.is_empty());
     }
@@ -776,7 +791,7 @@ mod tests {
     }
 
     #[test]
-    fn example_config_resolves_opencode_brains() {
+    fn example_config_resolves_opencode_roles() {
         let td = tempfile::tempdir().unwrap();
         let repo = td.path().join("repo");
         std::fs::create_dir_all(&repo).unwrap();
@@ -786,12 +801,12 @@ mod tests {
             ConfigLoader::new(Some(cfg_path));
         let cfg = loader.load_for_repo(&repo).unwrap().unwrap();
 
-        let reader = cfg.resolve_profile(Some("opencode_reader"), None).unwrap();
+        let reader = cfg.resolve_profile(Some("opencode_reader")).unwrap();
         assert_eq!(reader.profile.backend_id, "opencode");
         assert_eq!(reader.profile.model, "cchGemini/gemini-3-flash-preview");
         assert_eq!(reader.profile.capabilities.filesystem, FilesystemCapability::ReadWrite);
 
-        let writer = cfg.resolve_profile(Some("opencode_writer"), None).unwrap();
+        let writer = cfg.resolve_profile(Some("opencode_writer")).unwrap();
         assert_eq!(writer.profile.backend_id, "opencode");
         assert_eq!(writer.profile.model, "cchGemini/gemini-3-flash-preview");
         assert_eq!(writer.profile.capabilities.filesystem, FilesystemCapability::ReadWrite);
@@ -811,7 +826,7 @@ mod tests {
       "models": { "opencode-gpt-5": {} }
     }
   },
-  "brains": {
+  "roles": {
     "reader": {
       "model": "opencode/opencode-gpt-5",
       "personas": { "description": "d", "prompt": "p" },
@@ -829,10 +844,10 @@ mod tests {
         let (_, adapter_path) = crate::test_utils::example_config_paths();
         let loader = ConfigLoader::new(Some(path));
         let cfg = loader.load_for_repo(&repo).unwrap().unwrap();
-        let writer = cfg.resolve_profile(Some("writer"), None).unwrap();
+        let writer = cfg.resolve_profile(Some("writer")).unwrap();
         assert_eq!(writer.profile.backend_id, "opencode");
 
-        let err = cfg.resolve_profile(Some("reader"), None).unwrap_err();
+        let err = cfg.resolve_profile(Some("reader")).unwrap_err();
         let msg = err.to_string();
         assert!(msg.contains("filesystem capability") && msg.contains("opencode"), "unexpected error: {msg}");
     }
@@ -851,7 +866,7 @@ mod tests {
       "models": { "kimi-k2": {} }
     }
   },
-  "brains": {
+  "roles": {
     "reader": {
       "model": "kimi/kimi-k2",
       "personas": { "description": "d", "prompt": "p" },
@@ -869,10 +884,10 @@ mod tests {
         let (_, adapter_path) = crate::test_utils::example_config_paths();
         let loader = ConfigLoader::new(Some(path));
         let cfg = loader.load_for_repo(&repo).unwrap().unwrap();
-        let writer = cfg.resolve_profile(Some("writer"), None).unwrap();
+        let writer = cfg.resolve_profile(Some("writer")).unwrap();
         assert_eq!(writer.profile.backend_id, "kimi");
 
-        let err = cfg.resolve_profile(Some("reader"), None).unwrap_err();
+        let err = cfg.resolve_profile(Some("reader")).unwrap_err();
         let msg = err.to_string();
         assert!(msg.contains("filesystem capability") && msg.contains("kimi"), "unexpected error: {msg}");
     }
@@ -900,7 +915,7 @@ mod tests {
       "models": { "gemini-3-pro-preview": {} }
     }
   },
-  "brains": {
+  "roles": {
     "reader": {
       "model": "gemini/gemini-3-pro-preview",
       "personas": { "description": "d", "prompt": "p" },
@@ -925,7 +940,7 @@ mod tests {
 
         let loader = ConfigLoader::new(Some(cfg_path));
         let cfg = loader.load_for_repo(&repo).unwrap().unwrap();
-        let resolved = cfg.resolve_profile(Some("reader"), None).unwrap();
+        let resolved = cfg.resolve_profile(Some("reader")).unwrap();
         assert_eq!(resolved.profile.backend_id, "gemini");
     }
 
@@ -943,7 +958,7 @@ mod tests {
     "codex": { "models": { "gpt-5.2": {} } },
     "gemini": { "models": { "gemini-3-pro-preview": {} } }
   },
-  "brains": {
+  "roles": {
     "writer": {
       "model": "codex/gpt-5.2",
       "personas": { "description": "d", "prompt": "p" },
@@ -974,10 +989,10 @@ mod tests {
         let loader = ConfigLoader::new(Some(cfg_path));
         let cfg = loader.load_for_repo(&repo).unwrap().unwrap();
 
-        let ok = cfg.resolve_profile(Some("writer"), None);
+        let ok = cfg.resolve_profile(Some("writer"));
         assert!(ok.is_ok());
 
-        let missing = cfg.resolve_profile(Some("reader"), None);
+        let missing = cfg.resolve_profile(Some("reader"));
         assert!(missing.is_err());
         assert!(missing
             .unwrap_err()
@@ -1005,7 +1020,7 @@ mod tests {
       }
     }
   },
-  "brains": {
+  "roles": {
     "oracle": {
       "model": "codex/gpt-5.2-codex",
       "personas": { "description": "d", "prompt": "p" },
@@ -1024,7 +1039,7 @@ mod tests {
         let loader = ConfigLoader::new(Some(cfg_path));
         let cfg = loader.load_for_repo(&repo).unwrap().unwrap();
 
-        let base = cfg.resolve_profile(Some("oracle"), None).unwrap();
+        let base = cfg.resolve_profile(Some("oracle")).unwrap();
         let base_effort = base
             .profile
             .options
@@ -1035,7 +1050,7 @@ mod tests {
             });
         assert_eq!(base_effort, Some("high"));
 
-        let fast = cfg.resolve_profile(Some("oracle-fast"), None).unwrap();
+        let fast = cfg.resolve_profile(Some("oracle-fast")).unwrap();
         let fast_effort = fast
             .profile
             .options
@@ -1048,7 +1063,7 @@ mod tests {
     }
 
     #[test]
-    fn parses_brain_capabilities_read_write() {
+    fn parses_role_capabilities_read_write() {
         let td = tempfile::tempdir().unwrap();
         let repo = td.path().join("repo");
         std::fs::create_dir_all(&repo).unwrap();
@@ -1066,7 +1081,7 @@ mod tests {
       "models": { "gpt-5.2-codex": {} }
     }
   },
-  "brains": {
+  "roles": {
     "reader": {
       "model": "codex/gpt-5.2-codex",
       "personas": { "description": "d", "prompt": "p" },
@@ -1084,12 +1099,12 @@ mod tests {
         let loader = ConfigLoader::new(Some(cfg_path));
         let cfg = loader.load_for_repo(&repo).unwrap().unwrap();
 
-        let reader = cfg.resolve_profile(Some("reader"), None).unwrap();
+        let reader = cfg.resolve_profile(Some("reader")).unwrap();
         assert_eq!(reader.profile.capabilities.filesystem, FilesystemCapability::ReadOnly);
         assert_eq!(reader.profile.capabilities.shell, ShellCapability::Deny);
         assert_eq!(reader.profile.capabilities.network, NetworkCapability::Deny);
 
-        let writer = cfg.resolve_profile(Some("writer"), None).unwrap();
+        let writer = cfg.resolve_profile(Some("writer")).unwrap();
         assert_eq!(writer.profile.capabilities.filesystem, FilesystemCapability::ReadWrite);
         assert_eq!(writer.profile.capabilities.shell, ShellCapability::Allow);
         assert_eq!(writer.profile.capabilities.network, NetworkCapability::Allow);
@@ -1127,7 +1142,7 @@ mod tests {
       "models": { "kimi-k2": {} }
     }
   },
-  "brains": {
+  "roles": {
     "claude_reader": {
       "model": "claude/claude-opus-4-5-20251101",
       "personas": { "description": "d", "prompt": "p" },
@@ -1185,13 +1200,13 @@ mod tests {
         let loader = ConfigLoader::new(Some(cfg_path));
         let cfg = loader.load_for_repo(&repo).unwrap().unwrap();
 
-        let reader = cfg.resolve_profile(Some("claude_reader"), None).unwrap();
+        let reader = cfg.resolve_profile(Some("claude_reader")).unwrap();
         assert_eq!(reader.profile.backend_id, "claude");
         assert_eq!(reader.profile.capabilities.filesystem, FilesystemCapability::ReadOnly);
         assert_eq!(reader.profile.capabilities.shell, ShellCapability::Deny);
         assert_eq!(reader.profile.capabilities.network, NetworkCapability::Deny);
 
-        let writer = cfg.resolve_profile(Some("claude_writer"), None).unwrap();
+        let writer = cfg.resolve_profile(Some("claude_writer")).unwrap();
         assert_eq!(writer.profile.backend_id, "claude");
         assert_eq!(writer.profile.capabilities.filesystem, FilesystemCapability::ReadWrite);
         assert_eq!(writer.profile.capabilities.shell, ShellCapability::Allow);
@@ -1230,7 +1245,7 @@ mod tests {
       "models": { "kimi-k2": {} }
     }
   },
-  "brains": {
+  "roles": {
     "claude_reader": {
       "model": "claude/claude-opus-4-5-20251101",
       "personas": { "description": "d", "prompt": "p" },
@@ -1288,13 +1303,13 @@ mod tests {
         let loader = ConfigLoader::new(Some(cfg_path));
         let cfg = loader.load_for_repo(&repo).unwrap().unwrap();
 
-        let reader = cfg.resolve_profile(Some("codex_reader"), None).unwrap();
+        let reader = cfg.resolve_profile(Some("codex_reader")).unwrap();
         assert_eq!(reader.profile.backend_id, "codex");
         assert_eq!(reader.profile.capabilities.filesystem, FilesystemCapability::ReadOnly);
         assert_eq!(reader.profile.capabilities.shell, ShellCapability::Deny);
         assert_eq!(reader.profile.capabilities.network, NetworkCapability::Deny);
 
-        let writer = cfg.resolve_profile(Some("codex_writer"), None).unwrap();
+        let writer = cfg.resolve_profile(Some("codex_writer")).unwrap();
         assert_eq!(writer.profile.backend_id, "codex");
         assert_eq!(writer.profile.capabilities.filesystem, FilesystemCapability::ReadWrite);
         assert_eq!(writer.profile.capabilities.shell, ShellCapability::Allow);
@@ -1333,7 +1348,7 @@ mod tests {
       "models": { "kimi-k2": {} }
     }
   },
-  "brains": {
+  "roles": {
     "claude_reader": {
       "model": "claude/claude-opus-4-5-20251101",
       "personas": { "description": "d", "prompt": "p" },
@@ -1391,13 +1406,13 @@ mod tests {
         let loader = ConfigLoader::new(Some(cfg_path));
         let cfg = loader.load_for_repo(&repo).unwrap().unwrap();
 
-        let reader = cfg.resolve_profile(Some("gemini_reader"), None).unwrap();
+        let reader = cfg.resolve_profile(Some("gemini_reader")).unwrap();
         assert_eq!(reader.profile.backend_id, "gemini");
         assert_eq!(reader.profile.capabilities.filesystem, FilesystemCapability::ReadOnly);
         assert_eq!(reader.profile.capabilities.shell, ShellCapability::Deny);
         assert_eq!(reader.profile.capabilities.network, NetworkCapability::Deny);
 
-        let writer = cfg.resolve_profile(Some("gemini_writer"), None).unwrap();
+        let writer = cfg.resolve_profile(Some("gemini_writer")).unwrap();
         assert_eq!(writer.profile.backend_id, "gemini");
         assert_eq!(writer.profile.capabilities.filesystem, FilesystemCapability::ReadWrite);
         assert_eq!(writer.profile.capabilities.shell, ShellCapability::Allow);
@@ -1436,7 +1451,7 @@ mod tests {
       "models": { "kimi-k2": {} }
     }
   },
-  "brains": {
+  "roles": {
     "claude_reader": {
       "model": "claude/claude-opus-4-5-20251101",
       "personas": { "description": "d", "prompt": "p" },
@@ -1494,13 +1509,13 @@ mod tests {
         let loader = ConfigLoader::new(Some(cfg_path));
         let cfg = loader.load_for_repo(&repo).unwrap().unwrap();
 
-        let reader = cfg.resolve_profile(Some("opencode_reader"), None).unwrap();
+        let reader = cfg.resolve_profile(Some("opencode_reader")).unwrap();
         assert_eq!(reader.profile.backend_id, "opencode");
         assert_eq!(reader.profile.capabilities.filesystem, FilesystemCapability::ReadWrite);
         assert_eq!(reader.profile.capabilities.shell, ShellCapability::Deny);
         assert_eq!(reader.profile.capabilities.network, NetworkCapability::Deny);
 
-        let writer = cfg.resolve_profile(Some("opencode_writer"), None).unwrap();
+        let writer = cfg.resolve_profile(Some("opencode_writer")).unwrap();
         assert_eq!(writer.profile.backend_id, "opencode");
         assert_eq!(writer.profile.capabilities.filesystem, FilesystemCapability::ReadWrite);
         assert_eq!(writer.profile.capabilities.shell, ShellCapability::Allow);
@@ -1539,7 +1554,7 @@ mod tests {
       "models": { "kimi-k2": {} }
     }
   },
-  "brains": {
+  "roles": {
     "claude_reader": {
       "model": "claude/claude-opus-4-5-20251101",
       "personas": { "description": "d", "prompt": "p" },
@@ -1597,13 +1612,13 @@ mod tests {
         let loader = ConfigLoader::new(Some(cfg_path));
         let cfg = loader.load_for_repo(&repo).unwrap().unwrap();
 
-        let reader = cfg.resolve_profile(Some("kimi_reader"), None).unwrap();
+        let reader = cfg.resolve_profile(Some("kimi_reader")).unwrap();
         assert_eq!(reader.profile.backend_id, "kimi");
         assert_eq!(reader.profile.capabilities.filesystem, FilesystemCapability::ReadWrite);
         assert_eq!(reader.profile.capabilities.shell, ShellCapability::Deny);
         assert_eq!(reader.profile.capabilities.network, NetworkCapability::Deny);
 
-        let writer = cfg.resolve_profile(Some("kimi_writer"), None).unwrap();
+        let writer = cfg.resolve_profile(Some("kimi_writer")).unwrap();
         assert_eq!(writer.profile.backend_id, "kimi");
         assert_eq!(writer.profile.capabilities.filesystem, FilesystemCapability::ReadWrite);
         assert_eq!(writer.profile.capabilities.shell, ShellCapability::Allow);

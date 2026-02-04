@@ -273,17 +273,17 @@ mod tests {
     use std::path::Path;
     use std::collections::BTreeMap;
 
-    fn render_args_for_brain_with_prompt(
+    fn render_args_for_role_with_prompt(
         cfg_path: &Path,
         adapter_path: &Path,
         repo: &Path,
-        brain: &str,
+        role: &str,
         prompt: &str,
     ) -> Vec<String> {
         let loader =
             ConfigLoader::new(Some(cfg_path.to_path_buf()));
         let cfg = loader.load_for_repo(repo).unwrap().unwrap();
-        let rp = cfg.resolve_profile(Some(brain), None).unwrap();
+        let rp = cfg.resolve_profile(Some(role)).unwrap();
         render_args(&GenericOptions {
             backend_id: rp.profile.backend_id.clone(),
             adapter: rp.profile.adapter.clone(),
@@ -298,13 +298,13 @@ mod tests {
         .unwrap()
     }
 
-    fn render_args_for_brain(
+    fn render_args_for_role(
         cfg_path: &Path,
         adapter_path: &Path,
         repo: &Path,
-        brain: &str,
+        role: &str,
     ) -> Vec<String> {
-        render_args_for_brain_with_prompt(cfg_path, adapter_path, repo, brain, "ping")
+        render_args_for_role_with_prompt(cfg_path, adapter_path, repo, role, "ping")
     }
 
     fn assert_gemini_render(args: &[String], model: &str, expect_sandbox: bool, expect_plan: bool) {
@@ -594,7 +594,7 @@ mod tests {
         let repo = td.path().join("repo");
         std::fs::create_dir_all(&repo).unwrap();
         let (cfg_path, adapter_path) = crate::test_utils::example_config_paths();
-        let args = render_args_for_brain(&cfg_path, &adapter_path, &repo, "gemini_reader");
+        let args = render_args_for_role(&cfg_path, &adapter_path, &repo, "gemini_reader");
         assert_gemini_render(&args, "gemini-3-pro-preview", true, true);
     }
 
@@ -612,7 +612,7 @@ mod tests {
         let (cfg_path, adapter_path) = crate::test_utils::example_config_paths();
         let prompt = format!("Read {}", outside_file.display());
         let args =
-            render_args_for_brain_with_prompt(&cfg_path, &adapter_path, &repo, "gemini_reader", &prompt);
+            render_args_for_role_with_prompt(&cfg_path, &adapter_path, &repo, "gemini_reader", &prompt);
         assert!(args.contains(&"--include-directories".to_string()));
         assert!(args.contains(&outside.to_string_lossy().to_string()));
     }

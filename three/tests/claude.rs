@@ -21,7 +21,7 @@ fn write_claude_config(path: &Path) {
       "models": { "claude-opus-4-5-20251101": {} }
     }
   },
-  "brains": {
+  "roles": {
     "reader": {
       "model": "claude/claude-opus-4-5-20251101",
       "personas": { "description": "d", "prompt": "p" },
@@ -37,17 +37,17 @@ fn write_claude_config(path: &Path) {
     std::fs::write(path, cfg).unwrap();
 }
 
-fn render_args_for_brain(
+fn render_args_for_role(
     cfg_path: &Path,
     adapter_path: &Path,
     repo: &Path,
-    brain: &str,
+    role: &str,
     prompt: &str,
 ) -> Vec<String> {
     let loader =
         ConfigLoader::new(Some(cfg_path.to_path_buf()));
     let cfg = loader.load_for_repo(repo).unwrap().unwrap();
-    let rp = cfg.resolve_profile(Some(brain), None).unwrap();
+    let rp = cfg.resolve_profile(Some(role)).unwrap();
     backend::render_args(&backend::GenericOptions {
         backend_id: rp.profile.backend_id.clone(),
         adapter: rp.profile.adapter.clone(),
@@ -62,19 +62,19 @@ fn render_args_for_brain(
     .unwrap()
 }
 
-fn print_rendered_command(cfg_path: &Path, adapter_path: &Path, repo: &Path, brain: &str, prompt: &str) {
-    let args = render_args_for_brain(cfg_path, adapter_path, repo, brain, prompt);
+fn print_rendered_command(cfg_path: &Path, adapter_path: &Path, repo: &Path, role: &str, prompt: &str) {
+    let args = render_args_for_role(cfg_path, adapter_path, repo, role, prompt);
     let command = resolve_test_command();
-    eprintln!("cfgtest command for brain '{brain}':");
+    eprintln!("cfgtest command for role '{role}':");
     eprintln!("  cmd: {command}");
     eprintln!("  args: {args:?}");
 }
 
-async fn run_brain(
+async fn run_role(
     cfg_path: &Path,
     adapter_path: &Path,
     repo: &Path,
-    brain: &str,
+    role: &str,
     prompt: String,
 ) -> three::server::VibeOutput {
     let store = SessionStore::new(repo.join("sessions.json"));
@@ -89,8 +89,7 @@ async fn run_brain(
             VibeArgs {
                 prompt,
                 cd: repo.to_string_lossy().to_string(),
-                role: Some(brain.to_string()),
-                brain: None,
+                role: Some(role.to_string()),
                 backend: None,
                 model: None,
                 reasoning_effort: None,
@@ -138,7 +137,7 @@ async fn cfgtest_real_claude_smoke() {
 
     let prompt = prompt_date();
     print_rendered_command(&cfg_path, &adapter_path, &repo, "reader", &prompt);
-    let out = run_brain(&cfg_path, &adapter_path, &repo, "reader", prompt).await;
+    let out = run_role(&cfg_path, &adapter_path, &repo, "reader", prompt).await;
 
     assert!(out.success, "error={:?}", out.error);
     let re = Regex::new(r"DATE:\d{4}-\d{2}-\d{2}").unwrap();
@@ -164,7 +163,7 @@ async fn cfgtest_real_claude_readonly_create_file() {
 
     let prompt = prompt_create_file(&target);
     print_rendered_command(&cfg_path, &adapter_path, &repo, "reader", &prompt);
-    let out = run_brain(&cfg_path, &adapter_path, &repo, "reader", prompt).await;
+    let out = run_role(&cfg_path, &adapter_path, &repo, "reader", prompt).await;
 
     assert!(out.success, "error={:?}", out.error);
     let reported_true = out.agent_messages.contains("RESULT:true");
@@ -194,7 +193,7 @@ async fn cfgtest_real_claude_readwrite_create_file() {
 
     let prompt = prompt_create_file(&target);
     print_rendered_command(&cfg_path, &adapter_path, &repo, "writer", &prompt);
-    let out = run_brain(&cfg_path, &adapter_path, &repo, "writer", prompt).await;
+    let out = run_role(&cfg_path, &adapter_path, &repo, "writer", prompt).await;
 
     assert!(out.success, "error={:?}", out.error);
     assert!(out.agent_messages.contains("RESULT:true"), "msg={}", out.agent_messages);
