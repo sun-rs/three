@@ -106,6 +106,63 @@ fn prompt_create_file(path: &Path) -> String {
     )
 }
 
+fn write_opencode_config(path: &Path) {
+    let cfg = r#"{
+  "backend": {
+    "opencode": {
+      "models": { "opencode-gpt-5": {} }
+    }
+  },
+  "roles": {
+    "reader": {
+      "model": "opencode/opencode-gpt-5",
+      "personas": { "description": "d", "prompt": "p" },
+      "capabilities": { "filesystem": "read-only", "shell": "deny", "network": "deny", "tools": ["read"] }
+    }
+  }
+}"#;
+    std::fs::write(path, cfg).unwrap();
+}
+
+#[tokio::test]
+async fn e2e_role_capability_rejected() {
+    let td = tempfile::tempdir().unwrap();
+    let repo = td.path().join("repo");
+    std::fs::create_dir_all(&repo).unwrap();
+
+    let cfg_path = td.path().join("config.json");
+    write_opencode_config(&cfg_path);
+
+    let store = SessionStore::new(repo.join("sessions.json"));
+    let server = VibeServer::new(ConfigLoader::new(Some(cfg_path)), store);
+    let err = server
+        .run_vibe_internal(
+            None,
+            VibeArgs {
+                prompt: "ping".to_string(),
+                cd: repo.to_string_lossy().to_string(),
+                role: Some("reader".to_string()),
+                backend: None,
+                model: None,
+                reasoning_effort: None,
+                session_id: None,
+                force_new_session: true,
+                session_key: None,
+                timeout_secs: Some(5),
+                contract: None,
+                validate_patch: false,
+            },
+        )
+        .await
+        .unwrap_err();
+
+    let msg = err.to_string();
+    assert!(
+        msg.contains("filesystem capability") && msg.contains("opencode"),
+        "unexpected error: {msg}"
+    );
+}
+
 #[tokio::test]
 #[ignore]
 async fn cfgtest_real_opencode_smoke() {
