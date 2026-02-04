@@ -4,7 +4,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use regex::Regex;
 use tokio::sync::Mutex;
-use three::{
+use mcp_server_three::{
     backend,
     config::ConfigLoader,
     server::{VibeArgs, VibeServer},
@@ -58,7 +58,7 @@ async fn run_role(
     repo: &Path,
     role: &str,
     prompt: String,
-) -> three::server::VibeOutput {
+) -> mcp_server_three::server::VibeOutput {
     let store = SessionStore::new(repo.join("sessions.json"));
     let server = VibeServer::new(
         ConfigLoader::new(Some(cfg_path.to_path_buf())),

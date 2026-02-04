@@ -1,5 +1,5 @@
 [package]
-name = "three"
+name = "mcp-server-three"
 version = "0.1.0"
 edition = "2021"
 

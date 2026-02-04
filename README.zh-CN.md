@@ -39,11 +39,13 @@ cd three
 cargo build --release
 ```
 
+注意：编译产物为 `target/release/mcp-server-three`，注册的 MCP server 名称仍可使用 `three`。
+
 2) 在 Claude Code 注册 MCP Server：
 
 ```bash
 claude mcp add three -s user --transport stdio -- \
-  "$(pwd)/target/release/three"
+  "$(pwd)/target/release/mcp-server-three"
 ```
 
 3) 安装 Claude Code 插件：

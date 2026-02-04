@@ -2,7 +2,7 @@ use anyhow::Result;
 use clap::Parser;
 use rmcp::{transport::stdio, ServiceExt};
 use std::path::PathBuf;
-use three::{
+use mcp_server_three::{
     config::{ConfigLoader, VibeConfig},
     server::VibeServer,
     session_store::SessionStore,
@@ -11,7 +11,7 @@ use three::{
 /// Three MCP router: multi-LLM, session-aware delegator.
 #[derive(Parser, Debug)]
 #[command(
-    name = "three",
+    name = "mcp-server-three",
     version,
     about = "MCP server routing prompts to multiple local LLM CLIs with session reuse",
     long_about = None

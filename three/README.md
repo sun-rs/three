@@ -70,9 +70,11 @@ graph TD
 # In the three/ directory
 cargo build --release
 
+Note: the compiled binary is `target/release/mcp-server-three`. The MCP server name you register can still be `three`.
+
 # Register with Claude Code
 claude mcp add three -s user --transport stdio -- \
-  "$(pwd)/target/release/three"
+  "$(pwd)/target/release/mcp-server-three"
 ```
 
 ### 3. Configure (`~/.config/three/config.json`)

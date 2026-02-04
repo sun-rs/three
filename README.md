@@ -39,11 +39,13 @@ cd three
 cargo build --release
 ```
 
+Note: the compiled binary is `target/release/mcp-server-three`. The MCP server name you register can still be `three`.
+
 2) Register the MCP server with Claude Code:
 
 ```bash
 claude mcp add three -s user --transport stdio -- \
-  "$(pwd)/target/release/three"
+  "$(pwd)/target/release/mcp-server-three"
 ```
 
 3) Install the Claude Code plugin:
