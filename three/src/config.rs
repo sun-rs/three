@@ -3,6 +3,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use crate::adapter_catalog::embedded_adapter_catalog;
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct VibeConfig {
     pub backend: BTreeMap<String, BackendConfig>,
@@ -12,28 +14,15 @@ pub struct VibeConfig {
 #[derive(Debug, Clone)]
 pub struct ConfigLoader {
     user_config_path: Option<PathBuf>,
-    adapter_path: Option<PathBuf>,
 }
 
 impl ConfigLoader {
     pub fn new(user_config_path: Option<PathBuf>) -> Self {
-        Self {
-            user_config_path,
-            adapter_path: None,
-        }
-    }
-
-    pub fn with_adapter_path(mut self, adapter_path: Option<PathBuf>) -> Self {
-        self.adapter_path = adapter_path;
-        self
+        Self { user_config_path }
     }
 
     pub fn user_config_path(&self) -> Option<&Path> {
         self.user_config_path.as_deref()
-    }
-
-    pub fn adapter_path(&self) -> Option<&Path> {
-        self.adapter_path.as_deref()
     }
 
     pub fn project_config_paths(repo_root: &Path) -> [PathBuf; 2] {
@@ -72,9 +61,8 @@ impl ConfigLoader {
         };
 
         if let Some(ref mut cfg_val) = cfg {
-            if let Some(catalog) = load_adapter_catalog(self.adapter_path())? {
-                apply_adapter_catalog(cfg_val, &catalog);
-            }
+            let catalog = embedded_adapter_catalog();
+            apply_adapter_catalog(cfg_val, &catalog);
         }
 
         Ok(cfg)
@@ -435,14 +423,6 @@ pub struct AdapterCatalog {
 }
 
 impl AdapterCatalog {
-    pub fn default_path() -> Option<PathBuf> {
-        if let Some(base) = std::env::var_os("XDG_CONFIG_HOME") {
-            return Some(PathBuf::from(base).join("three").join("adapter.json"));
-        }
-        let home = dirs::home_dir()?;
-        Some(home.join(".config").join("three").join("adapter.json"))
-    }
-
     pub fn load(path: &Path) -> Result<Self> {
         let raw = std::fs::read_to_string(path)
             .with_context(|| format!("failed to read adapter config: {}", path.display()))?;
@@ -488,22 +468,6 @@ fn merge_config(mut base: VibeConfig, overlay: VibeConfig) -> VibeConfig {
     }
     base.brains.extend(overlay.brains);
     base
-}
-
-fn load_adapter_catalog(path: Option<&Path>) -> Result<Option<AdapterCatalog>> {
-    if let Some(p) = path {
-        if p.exists() {
-            return Ok(Some(AdapterCatalog::load(p)?));
-        }
-        return Ok(None);
-    }
-    let default_path = AdapterCatalog::default_path();
-    if let Some(p) = default_path {
-        if p.exists() {
-            return Ok(Some(AdapterCatalog::load(&p)?));
-        }
-    }
-    Ok(None)
 }
 
 fn apply_adapter_catalog(cfg: &mut VibeConfig, catalog: &AdapterCatalog) {
@@ -613,6 +577,34 @@ mod tests {
         let resolved = cfg.resolve_profile(None, Some("oracle")).unwrap();
         assert_eq!(resolved.brain_id, "oracle");
         assert_eq!(resolved.profile.backend_id, "opencode");
+    }
+
+    #[test]
+    fn loads_embedded_adapter_catalog() {
+        let td = tempfile::tempdir().unwrap();
+        let repo = td.path().join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        let config_home = td.path().join("xdg");
+        std::fs::create_dir_all(&config_home).unwrap();
+        let prev = std::env::var_os("XDG_CONFIG_HOME");
+        unsafe {
+            std::env::set_var("XDG_CONFIG_HOME", &config_home);
+        }
+
+        let (cfg_path, _adapter_path) = crate::test_utils::example_config_paths();
+        let loader = ConfigLoader::new(Some(cfg_path));
+        let cfg = loader.load_for_repo(&repo).unwrap().unwrap();
+        let codex = cfg.backend.get("codex").unwrap();
+        assert!(codex.adapter.is_some());
+
+        match prev {
+            Some(v) => unsafe {
+                std::env::set_var("XDG_CONFIG_HOME", v);
+            },
+            None => unsafe {
+                std::env::remove_var("XDG_CONFIG_HOME");
+            },
+        }
     }
 
     #[test]
@@ -791,7 +783,7 @@ mod tests {
 
         let (cfg_path, adapter_path) = crate::test_utils::example_config_paths();
         let loader =
-            ConfigLoader::new(Some(cfg_path)).with_adapter_path(Some(adapter_path));
+            ConfigLoader::new(Some(cfg_path));
         let cfg = loader.load_for_repo(&repo).unwrap().unwrap();
 
         let reader = cfg.resolve_profile(Some("opencode_reader"), None).unwrap();
@@ -835,7 +827,7 @@ mod tests {
         );
 
         let (_, adapter_path) = crate::test_utils::example_config_paths();
-        let loader = ConfigLoader::new(Some(path)).with_adapter_path(Some(adapter_path));
+        let loader = ConfigLoader::new(Some(path));
         let cfg = loader.load_for_repo(&repo).unwrap().unwrap();
         let writer = cfg.resolve_profile(Some("writer"), None).unwrap();
         assert_eq!(writer.profile.backend_id, "opencode");
@@ -875,7 +867,7 @@ mod tests {
         );
 
         let (_, adapter_path) = crate::test_utils::example_config_paths();
-        let loader = ConfigLoader::new(Some(path)).with_adapter_path(Some(adapter_path));
+        let loader = ConfigLoader::new(Some(path));
         let cfg = loader.load_for_repo(&repo).unwrap().unwrap();
         let writer = cfg.resolve_profile(Some("writer"), None).unwrap();
         assert_eq!(writer.profile.backend_id, "kimi");
@@ -931,7 +923,7 @@ mod tests {
 }"#,
         );
 
-        let loader = ConfigLoader::new(Some(cfg_path)).with_adapter_path(Some(adapter_path));
+        let loader = ConfigLoader::new(Some(cfg_path));
         let cfg = loader.load_for_repo(&repo).unwrap().unwrap();
         let resolved = cfg.resolve_profile(Some("reader"), None).unwrap();
         assert_eq!(resolved.profile.backend_id, "gemini");
@@ -979,7 +971,7 @@ mod tests {
 }"#,
         );
 
-        let loader = ConfigLoader::new(Some(cfg_path)).with_adapter_path(Some(adapter_path));
+        let loader = ConfigLoader::new(Some(cfg_path));
         let cfg = loader.load_for_repo(&repo).unwrap().unwrap();
 
         let ok = cfg.resolve_profile(Some("writer"), None);
@@ -1029,7 +1021,7 @@ mod tests {
         );
 
         let (_, adapter_path) = crate::test_utils::example_config_paths();
-        let loader = ConfigLoader::new(Some(cfg_path)).with_adapter_path(Some(adapter_path));
+        let loader = ConfigLoader::new(Some(cfg_path));
         let cfg = loader.load_for_repo(&repo).unwrap().unwrap();
 
         let base = cfg.resolve_profile(Some("oracle"), None).unwrap();

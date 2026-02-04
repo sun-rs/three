@@ -281,7 +281,7 @@ mod tests {
         prompt: &str,
     ) -> Vec<String> {
         let loader =
-            ConfigLoader::new(Some(cfg_path.to_path_buf())).with_adapter_path(Some(adapter_path.to_path_buf()));
+            ConfigLoader::new(Some(cfg_path.to_path_buf()));
         let cfg = loader.load_for_repo(repo).unwrap().unwrap();
         let rp = cfg.resolve_profile(Some(brain), None).unwrap();
         render_args(&GenericOptions {

@@ -29,7 +29,7 @@ fn render_args_for_brain(
     prompt: &str,
 ) -> Vec<String> {
     let loader =
-        ConfigLoader::new(Some(cfg_path.to_path_buf())).with_adapter_path(Some(adapter_path.to_path_buf()));
+        ConfigLoader::new(Some(cfg_path.to_path_buf()));
     let cfg = loader.load_for_repo(repo).unwrap().unwrap();
     let rp = cfg.resolve_profile(Some(brain), None).unwrap();
     backend::render_args(&backend::GenericOptions {
@@ -63,7 +63,7 @@ async fn run_brain(
 ) -> three::server::VibeOutput {
     let store = SessionStore::new(repo.join("sessions.json"));
     let server = VibeServer::new(
-        ConfigLoader::new(Some(cfg_path.to_path_buf())).with_adapter_path(Some(adapter_path.to_path_buf())),
+        ConfigLoader::new(Some(cfg_path.to_path_buf())),
         store,
     );
 
