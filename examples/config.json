@@ -1,6 +1,7 @@
 {
   "backend": {
     "codex": {
+      "timeout_secs": 600,
       "models": {
         "gpt-5.2": {
           "options": {},
@@ -39,6 +40,7 @@
       }
     },
     "claude": {
+      "timeout_secs": 600,
       "models": {
         "claude-haiku-4-5-20251001": {},
         "claude-sonnet-4-5-20250929": {},
@@ -46,15 +48,18 @@
       }
     },
     "gemini": {
+      "timeout_secs": 600,
       "models": {
         "gemini-3-pro-preview": {},
         "gemini-3-flash-preview": {}
       }
     },
     "kimi": {
+      "timeout_secs": 600,
       "models": {}
     },
     "opencode": {
+      "timeout_secs": 600,
       "models": {
         "kimi-for-coding/k2p5": {},
         "cchGemini/gemini-3-flash-low": {},
@@ -69,6 +74,7 @@
   "roles": {
     "codex_reader": {
       "model": "codex/gpt-5.2@xhigh",
+      "timeout_secs": 300,
       "personas": {
         "description": "Codex read-only role for deep analysis (gpt-5.2@xhigh).",
         "prompt": "You are a careful reviewer. Read and analyze only; do not propose file edits unless asked."
@@ -79,6 +85,7 @@
     },
     "codex_writer": {
       "model": "codex/gpt-5.2-codex@high",
+      "timeout_secs": 600,
       "personas": {
         "description": "Codex write-enabled role using gpt-5.2-codex@high.",
         "prompt": "You can create and modify files when required. Keep changes minimal and verifiable."
@@ -89,6 +96,7 @@
     },
     "claude_reader": {
       "model": "claude/claude-opus-4-5-20251101",
+      "timeout_secs": 300,
       "personas": {
         "description": "Claude read-only role for deep analysis (Opus 4.5).",
         "prompt": "You are a repo reader. Summarize structure and point to exact files and symbols. Do not invent."
@@ -99,6 +107,7 @@
     },
     "claude_writer": {
       "model": "claude/claude-sonnet-4-5-20250929",
+      "timeout_secs": 600,
       "personas": {
         "description": "Claude write-enabled role for fast edits (Sonnet 4.5).",
         "prompt": "You can create and modify files when required. Keep changes minimal and verifiable."
@@ -109,6 +118,7 @@
     },
     "gemini_reader": {
       "model": "gemini/gemini-3-pro-preview",
+      "timeout_secs": 300,
       "personas": {
         "description": "Gemini 3 Pro read-only role for deep analysis.",
         "prompt": "You are a repo reader. Summarize structure and point to exact files and symbols. Do not invent."
@@ -119,6 +129,7 @@
     },
     "gemini_writer": {
       "model": "gemini/gemini-3-flash-preview",
+      "timeout_secs": 600,
       "personas": {
         "description": "Gemini 3 Flash write-enabled role for quick edits.",
         "prompt": "You can create and modify files when required. Keep changes minimal and verifiable."
@@ -129,8 +140,9 @@
     },
     "kimi_reader": {
       "model": "kimi/default",
+      "timeout_secs": 300,
       "personas": {
-        "description": "Kimi read-focused role (read-only unsupported).",
+        "description": "INTENTIONAL INVALID EXAMPLE: used to test MCP capability-range validation (Kimi backend does not support read-only).",
         "prompt": "You are a repo reader. Summarize structure and point to exact files and symbols. Do not invent."
       },
       "capabilities": {
@@ -139,6 +151,7 @@
     },
     "kimi_writer": {
       "model": "kimi/default",
+      "timeout_secs": 600,
       "personas": {
         "description": "Kimi write-enabled role.",
         "prompt": "You can create and modify files when required. Keep changes minimal and verifiable."
@@ -149,8 +162,9 @@
     },
     "opencode_reader": {
       "model": "opencode/cchGemini/gemini-3-pro-high",
+      "timeout_secs": 300,
       "personas": {
-        "description": "OpenCode read-focused role (read-only unsupported).",
+        "description": "INTENTIONAL INVALID EXAMPLE: used to test MCP capability-range validation (OpenCode backend does not support read-only).",
         "prompt": "You are a repo reader. Summarize structure and point to exact files and symbols. Do not invent."
       },
       "capabilities": {
@@ -159,6 +173,7 @@
     },
     "opencode_writer": {
       "model": "opencode/cchGemini/gemini-3-flash-high",
+      "timeout_secs": 600,
       "personas": {
         "description": "OpenCode write-enabled role for fast edits.",
         "prompt": "You can create and modify files when required. Keep changes minimal and verifiable."

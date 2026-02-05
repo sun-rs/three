@@ -59,6 +59,7 @@ fn render_args_for_role(
         prompt: prompt.to_string(),
         workdir: repo.to_path_buf(),
         session_id: None,
+        resume: false,
         model: rp.profile.model.clone(),
         options: rp.profile.options.clone(),
         capabilities: rp.profile.capabilities.clone(),

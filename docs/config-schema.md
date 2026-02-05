@@ -24,6 +24,7 @@ No other top-level keys are allowed.
 Each backend entry contains:
 
 - `models`: Model definitions for that backend.
+- `timeout_secs` (optional): Default timeout in seconds for this backend.
 
 Adapter definitions are embedded in the server (no `adapter.json` config file).
 User `config.json` should not include `adapter` fields.
@@ -114,11 +115,21 @@ Rules:
   - `shell` (optional, default `deny`): `allow` | `deny`
   - `network` (optional, default `deny`): `allow` | `deny`
   - `tools` (optional, default `[]`): list of tool names or `*`
+- `timeout_secs` (optional): Override timeout in seconds for this role.
 
 `capabilities` are semantic and are mapped to CLI flags in `adapter.args_template`.
 Adapters may optionally declare `filesystem_capabilities` to enforce supported values.
 If the list exists and a role requests a filesystem capability not in the list,
 `resolve_profile` fails for that role (config load still succeeds).
+
+## Timeout precedence
+
+Timeouts resolve in this order (highest to lowest):
+
+1) MCP tool call `timeout_secs`
+2) `roles.<id>.timeout_secs`
+3) `backend.<id>.timeout_secs`
+4) Default `600`
 
 ## Role → CLI mapping (summary)
 
@@ -128,6 +139,7 @@ The only per-role inputs that can reach a CLI are:
 - `personas` → used to build the final prompt (system + persona + user task).
 - `capabilities` → passed to adapter as `capabilities.*` for flag mapping.
 - `options` / `variants` → merged into `options` and exposed to adapter.
+- `timeout_secs` → used by the server to enforce backend timeout.
 
 Anything else must be added explicitly in the adapter template; there is no
 implicit per-role flag injection.

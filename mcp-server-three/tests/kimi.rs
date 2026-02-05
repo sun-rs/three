@@ -1,6 +1,7 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
+use std::env;
 
 use regex::Regex;
 use tokio::sync::Mutex;
@@ -59,6 +60,7 @@ fn render_args_for_role(
         prompt: prompt.to_string(),
         workdir: repo.to_path_buf(),
         session_id: None,
+        resume: false,
         model: rp.profile.model.clone(),
         options: rp.profile.options.clone(),
         capabilities: rp.profile.capabilities.clone(),
@@ -126,6 +128,127 @@ fn prompt_create_file(path: &Path) -> String {
         "Attempt to create a file at {path} with content 'hello'. Reply with exactly RESULT:true if the file is created, otherwise RESULT:false.",
         path = path.display()
     )
+}
+
+struct ScopedPath {
+    prev: Option<String>,
+}
+
+impl ScopedPath {
+    fn new(bin_dir: &Path) -> Self {
+        let prev = env::var("PATH").ok();
+        let mut new_path = bin_dir.to_string_lossy().to_string();
+        if let Some(prev_val) = prev.as_deref() {
+            if !prev_val.is_empty() {
+                new_path.push(':');
+                new_path.push_str(prev_val);
+            }
+        }
+        env::set_var("PATH", new_path);
+        Self { prev }
+    }
+}
+
+impl Drop for ScopedPath {
+    fn drop(&mut self) {
+        match self.prev.as_deref() {
+            Some(val) => env::set_var("PATH", val),
+            None => env::remove_var("PATH"),
+        }
+    }
+}
+
+fn write_fake_kimi(bin_dir: &Path, log: &Path) -> PathBuf {
+    let bin_path = bin_dir.join("kimi");
+    let script = format!(
+        "#!/bin/sh\nset -e\n\necho \"ARGS: $@\" >> \"{}\"\n\necho \"ok\"\n",
+        log.display()
+    );
+    std::fs::write(&bin_path, script).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = std::fs::metadata(&bin_path).unwrap().permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&bin_path, perms).unwrap();
+    }
+    bin_path
+}
+
+#[tokio::test]
+async fn e2e_kimi_continue_used_when_history_exists() {
+    let _lock = kimi_test_lock().lock().await;
+    let td = tempfile::tempdir().unwrap();
+    let repo = td.path().join("repo");
+    std::fs::create_dir_all(&repo).unwrap();
+
+    let cfg_path = td.path().join("config.json");
+    write_kimi_config(&cfg_path);
+
+    let bin_dir = td.path().join("bin");
+    std::fs::create_dir_all(&bin_dir).unwrap();
+    let log = td.path().join("kimi.log");
+    write_fake_kimi(&bin_dir, &log);
+    let _path_guard = ScopedPath::new(&bin_dir);
+
+    let store = SessionStore::new(repo.join("sessions.json"));
+    let server = VibeServer::new(
+        ConfigLoader::new(Some(cfg_path.to_path_buf())),
+        store,
+    );
+
+    let first = server
+        .run_vibe_internal(
+            None,
+            VibeArgs {
+                prompt: "first".to_string(),
+                cd: repo.to_string_lossy().to_string(),
+                role: Some("reader".to_string()),
+                backend: None,
+                model: None,
+                reasoning_effort: None,
+                session_id: None,
+                force_new_session: true,
+                session_key: None,
+                timeout_secs: Some(5),
+                contract: None,
+                validate_patch: false,
+            },
+        )
+        .await
+        .unwrap();
+    assert!(first.success, "error={:?}", first.error);
+
+    let second = server
+        .run_vibe_internal(
+            None,
+            VibeArgs {
+                prompt: "second".to_string(),
+                cd: repo.to_string_lossy().to_string(),
+                role: Some("reader".to_string()),
+                backend: None,
+                model: None,
+                reasoning_effort: None,
+                session_id: None,
+                force_new_session: false,
+                session_key: None,
+                timeout_secs: Some(5),
+                contract: None,
+                validate_patch: false,
+            },
+        )
+        .await
+        .unwrap();
+    assert!(second.success, "error={:?}", second.error);
+
+    let log_txt = std::fs::read_to_string(&log).unwrap_or_default();
+    let args_lines: Vec<&str> = log_txt.lines().filter(|l| l.starts_with("ARGS:")).collect();
+    assert_eq!(args_lines.len(), 2, "log={log_txt}");
+    let first_line = args_lines[0];
+    let second_line = args_lines[1];
+    assert!(!first_line.contains("--continue"), "log={log_txt}");
+    assert!(second_line.contains("--continue"), "log={log_txt}");
+    assert!(!second_line.contains("--session"), "log={log_txt}");
 }
 
 #[tokio::test]

@@ -16,6 +16,7 @@ pub struct GenericOptions {
     pub prompt: String,
     pub workdir: PathBuf,
     pub session_id: Option<String>,
+    pub resume: bool,
     pub model: String,
     pub options: BTreeMap<String, OptionValue>,
     pub capabilities: Capabilities,
@@ -45,6 +46,7 @@ pub fn render_args(opts: &GenericOptions) -> Result<Vec<String>> {
         prompt => opts.prompt,
         model => opts.model,
         session_id => opts.session_id,
+        resume => opts.resume,
         workdir => opts.workdir.to_string_lossy().to_string(),
         options => options_val,
         capabilities => capabilities_val,
@@ -120,13 +122,21 @@ fn detect_include_directories(prompt: &str, workdir: &Path) -> String {
             continue;
         }
 
-        let include_dir = if path.extension().is_some() {
+        let include_dir = if path.exists() {
+            if path.is_file() {
+                path.parent().map(|p| p.to_path_buf())
+            } else if path.is_dir() {
+                Some(path.clone())
+            } else {
+                None
+            }
+        } else if path.extension().is_some() {
             path.parent().map(|p| p.to_path_buf())
         } else {
             Some(path.clone())
         };
         if let Some(dir) = include_dir {
-            if !dir.as_os_str().is_empty() {
+            if !dir.as_os_str().is_empty() && dir.is_dir() {
                 dirs.insert(dir.to_string_lossy().to_string());
             }
         }
@@ -289,6 +299,7 @@ mod tests {
             prompt: prompt.to_string(),
             workdir: repo.to_path_buf(),
             session_id: None,
+            resume: false,
             model: rp.profile.model.clone(),
             options: rp.profile.options.clone(),
             capabilities: rp.profile.capabilities.clone(),
@@ -354,6 +365,7 @@ mod tests {
             prompt: "ping".to_string(),
             workdir: repo.to_path_buf(),
             session_id: session_id.map(|s| s.to_string()),
+            resume: false,
             model: model.to_string(),
             options,
             capabilities: base_capabilities(filesystem),
@@ -369,6 +381,7 @@ mod tests {
             prompt: "ping".to_string(),
             workdir: repo.to_path_buf(),
             session_id: session_id.map(|s| s.to_string()),
+            resume: false,
             model: model.to_string(),
             options: BTreeMap::new(),
             capabilities: base_capabilities(FilesystemCapability::ReadOnly),
@@ -398,6 +411,7 @@ mod tests {
             prompt: "ping".to_string(),
             workdir: repo.to_path_buf(),
             session_id: None,
+            resume: false,
             model: "kimi-for-coding".to_string(),
             options: BTreeMap::new(),
             capabilities: base_capabilities(FilesystemCapability::ReadOnly),
@@ -434,6 +448,7 @@ mod tests {
             prompt: "ping".to_string(),
             workdir: repo.to_path_buf(),
             session_id: Some("sess-1".to_string()),
+            resume: false,
             model: "kimi-for-coding".to_string(),
             options: BTreeMap::new(),
             capabilities: base_capabilities(FilesystemCapability::ReadWrite),
@@ -449,6 +464,32 @@ mod tests {
     }
 
     #[test]
+    fn cfgtest_render_kimi_resume_uses_continue_flag() {
+        let td = tempfile::tempdir().unwrap();
+        let repo = td.path().join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        let catalog = embedded_adapter_catalog();
+        let adapter = catalog.adapters.get("kimi").expect("kimi adapter").clone();
+
+        let args = render_args(&GenericOptions {
+            backend_id: "kimi".to_string(),
+            adapter,
+            prompt: "ping".to_string(),
+            workdir: repo.to_path_buf(),
+            session_id: None,
+            resume: true,
+            model: "kimi-for-coding".to_string(),
+            options: BTreeMap::new(),
+            capabilities: base_capabilities(FilesystemCapability::ReadWrite),
+            timeout_secs: 5,
+        })
+        .unwrap();
+
+        assert!(args.contains(&"--continue".to_string()));
+        assert!(!args.contains(&"--session".to_string()));
+    }
+
+    #[test]
     fn cfgtest_render_claude_default_model_skips_model_flag() {
         let td = tempfile::tempdir().unwrap();
         let repo = td.path().join("repo");
@@ -461,6 +502,7 @@ mod tests {
             prompt: "ping".to_string(),
             workdir: repo.to_path_buf(),
             session_id: None,
+            resume: false,
             model: "default".to_string(),
             options: BTreeMap::new(),
             capabilities: base_capabilities(FilesystemCapability::ReadOnly),
@@ -485,6 +527,7 @@ mod tests {
             prompt: "ping".to_string(),
             workdir: repo.to_path_buf(),
             session_id: None,
+            resume: false,
             model: "default".to_string(),
             options: BTreeMap::new(),
             capabilities: base_capabilities(FilesystemCapability::ReadOnly),
@@ -528,6 +571,7 @@ mod tests {
             prompt: "ping".to_string(),
             workdir: repo.to_path_buf(),
             session_id: None,
+            resume: false,
             model: "default".to_string(),
             options: BTreeMap::new(),
             capabilities: base_capabilities(FilesystemCapability::ReadOnly),
@@ -596,6 +640,20 @@ mod tests {
             render_args_for_role_with_prompt(&cfg_path, &repo, "gemini_reader", &prompt);
         assert!(args.contains(&"--include-directories".to_string()));
         assert!(args.contains(&outside.to_string_lossy().to_string()));
+    }
+
+    #[test]
+    fn cfgtest_render_gemini_include_directories_ignores_persona_tags() {
+        let td = tempfile::tempdir().unwrap();
+        let repo = td.path().join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+
+        let cfg_path = crate::test_utils::example_config_path();
+        let prompt = "[THREE_PERSONA id=gemini_reader]\nfoo\n[/THREE_PERSONA]\nRead this";
+        let args =
+            render_args_for_role_with_prompt(&cfg_path, &repo, "gemini_reader", prompt);
+        assert!(!args.contains(&"--include-directories".to_string()));
+        assert!(!args.iter().any(|t| t == "/THREE_PERSONA"));
     }
 
     #[test]

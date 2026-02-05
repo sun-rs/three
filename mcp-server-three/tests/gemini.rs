@@ -39,6 +39,7 @@ fn render_args_for_role(
         prompt: prompt.to_string(),
         workdir: repo.to_path_buf(),
         session_id: None,
+        resume: false,
         model: rp.profile.model.clone(),
         options: rp.profile.options.clone(),
         capabilities: rp.profile.capabilities.clone(),
@@ -106,6 +107,25 @@ fn prompt_create_file(path: &Path) -> String {
         "Attempt to create a file at {path} with content 'hello'. Reply with exactly RESULT:true if the file is created, otherwise RESULT:false.",
         path = path.display()
     )
+}
+
+#[test]
+fn cfgtest_render_gemini_include_directories_handles_extensionless_file() {
+    let td = tempfile::tempdir().unwrap();
+    let repo = td.path().join("repo");
+    std::fs::create_dir_all(&repo).unwrap();
+
+    let outside = td.path().join("README");
+    std::fs::write(&outside, "x").unwrap();
+
+    let cfg_path = example_loader();
+    let prompt = format!("Read {}", outside.display());
+    let args = render_args_for_role(&cfg_path, &repo, "gemini_reader", &prompt);
+
+    let include_idx = args.iter().position(|v| v == "--include-directories").unwrap();
+    let include_val = args.get(include_idx + 1).expect("include value");
+    let includes: Vec<&str> = include_val.split(',').collect();
+    assert!(includes.iter().any(|v| *v == td.path().to_string_lossy()));
 }
 
 #[tokio::test]

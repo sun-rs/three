@@ -659,18 +659,31 @@ impl VibeServer {
             .acquire_key_lock(&session_key)
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
 
-        let timeout_secs = args.timeout_secs.unwrap_or(600);
+        let timeout_secs = args
+            .timeout_secs
+            .or(rp.profile.timeout_secs)
+            .unwrap_or(600);
 
         let prev_rec = self.store.get(&session_key).ok().flatten();
         let supports_session = rp.profile.adapter.output_parser.supports_session();
         let mut resumed = false;
         let mut session_id_to_use = args.session_id.clone().filter(|s| !s.trim().is_empty());
-        if session_id_to_use.is_none() && !args.force_new_session && supports_session {
-            if let Some(rec) = prev_rec {
-                if rec.backend == rp.profile.backend {
-                    let prev_id = rec.backend_session_id.trim();
-                    if !prev_id.is_empty() && prev_id != "stateless" {
-                        session_id_to_use = Some(rec.backend_session_id);
+        let mut resume_without_session = false;
+        if session_id_to_use.is_none() && !args.force_new_session {
+            if supports_session {
+                if let Some(rec) = prev_rec.as_ref() {
+                    if rec.backend == rp.profile.backend {
+                        let prev_id = rec.backend_session_id.trim();
+                        if !prev_id.is_empty() && prev_id != "stateless" {
+                            session_id_to_use = Some(rec.backend_session_id.clone());
+                            resumed = true;
+                        }
+                    }
+                }
+            } else if rp.profile.backend_id == "kimi" {
+                if let Some(rec) = prev_rec.as_ref() {
+                    if rec.backend == rp.profile.backend {
+                        resume_without_session = true;
                         resumed = true;
                     }
                 }
@@ -683,6 +696,7 @@ impl VibeServer {
             prompt: prompt_text.clone(),
             workdir: repo_root.clone(),
             session_id: session_id_to_use,
+            resume: resume_without_session,
             model: rp.profile.model.clone(),
             options: rp.profile.options.clone(),
             capabilities: rp.profile.capabilities.clone(),

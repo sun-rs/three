@@ -140,6 +140,7 @@ pub fn embedded_adapter_catalog() -> AdapterCatalog {
                 "{{ workdir }}",
                 "{% if model != 'default' %}--model{% endif %}",
                 "{% if model != 'default' %}{{ model }}{% endif %}",
+                "{% if resume and not session_id %}--continue{% endif %}",
                 "{% if session_id %}--session{% endif %}",
                 "{% if session_id %}{{ session_id }}{% endif %}",
                 "--prompt",

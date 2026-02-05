@@ -74,6 +74,8 @@ pub struct BackendConfig {
     #[serde(default)]
     pub adapter: Option<AdapterConfig>,
     #[serde(default)]
+    pub timeout_secs: Option<u64>,
+    #[serde(default)]
     pub models: BTreeMap<String, ModelConfig>,
 }
 
@@ -154,6 +156,8 @@ pub struct RoleConfig {
     pub model: String,
     pub personas: PersonaConfig,
     pub capabilities: Capabilities,
+    #[serde(default)]
+    pub timeout_secs: Option<u64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -248,6 +252,7 @@ pub struct RoleProfile {
     pub capabilities: Capabilities,
     pub personas: PersonaConfig,
     pub adapter: AdapterConfig,
+    pub timeout_secs: Option<u64>,
 }
 
 impl VibeConfig {
@@ -281,8 +286,10 @@ impl VibeConfig {
             return Err(anyhow!("invalid config: missing 'roles' object"));
         }
 
-        let cfg: VibeConfig = serde_json::from_value(v)
+        let mut cfg: VibeConfig = serde_json::from_value(v)
             .with_context(|| format!("failed to parse config JSON: {}", path.display()))?;
+        let catalog = embedded_adapter_catalog();
+        apply_adapter_catalog(&mut cfg, &catalog);
         cfg.validate()?;
         Ok(cfg)
     }
@@ -344,6 +351,7 @@ impl VibeConfig {
                 capabilities: role_cfg.capabilities.clone(),
                 personas: role_cfg.personas.clone(),
                 adapter,
+                timeout_secs: role_cfg.timeout_secs.or(backend_cfg.timeout_secs),
             },
         })
     }
@@ -443,6 +451,9 @@ fn merge_config(mut base: VibeConfig, overlay: VibeConfig) -> VibeConfig {
                 if overlay_backend.adapter.is_some() {
                     base_backend.adapter = overlay_backend.adapter;
                 }
+                if overlay_backend.timeout_secs.is_some() {
+                    base_backend.timeout_secs = overlay_backend.timeout_secs;
+                }
             }
             None => {
                 base.backend.insert(backend_id, overlay_backend);
@@ -519,6 +530,46 @@ mod tests {
 
         let err = VibeConfig::load(&path).unwrap_err();
         assert!(err.to_string().contains("missing 'roles'"));
+    }
+
+    #[test]
+    fn resolves_role_timeout_over_backend_timeout() {
+        let td = tempfile::tempdir().unwrap();
+        let path = td.path().join("cfg.json");
+        std::fs::write(
+            &path,
+            r#"{
+  "backend": {
+    "codex": {
+      "timeout_secs": 120,
+      "models": {
+        "gpt-5.2": {}
+      }
+    }
+  },
+  "roles": {
+    "role_default": {
+      "model": "codex/gpt-5.2",
+      "personas": {"description":"d","prompt":"p"},
+      "capabilities": {"filesystem":"read-only"}
+    },
+    "role_override": {
+      "model": "codex/gpt-5.2",
+      "timeout_secs": 45,
+      "personas": {"description":"d","prompt":"p"},
+      "capabilities": {"filesystem":"read-only"}
+    }
+  }
+}"#,
+        )
+        .unwrap();
+
+        let cfg = VibeConfig::load(&path).unwrap();
+        let rp_default = cfg.resolve_profile(Some("role_default")).unwrap();
+        assert_eq!(rp_default.profile.timeout_secs, Some(120));
+
+        let rp_override = cfg.resolve_profile(Some("role_override")).unwrap();
+        assert_eq!(rp_override.profile.timeout_secs, Some(45));
     }
 
     #[test]

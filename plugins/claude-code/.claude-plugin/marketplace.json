@@ -1,0 +1,20 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "three-local",
+  "description": "Local marketplace for the three Claude Code plugin.",
+  "owner": {
+    "name": "three"
+  },
+  "plugins": [
+    {
+      "name": "three",
+      "description": "Multi-LLM, multi-role vibe coding via the local three MCP server.",
+      "version": "0.2.1",
+      "author": {
+        "name": "three"
+      },
+      "source": "./three",
+      "category": "productivity"
+    }
+  ]
+}

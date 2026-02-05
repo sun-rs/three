@@ -1,18 +1,15 @@
-# OpenCode CLI 操纵规则（three）
+# OpenCode CLI (three)
 
-本文件描述 **three** 在 `backend.opencode` 下对 OpenCode CLI 的参数映射、会话控制与输出解析规则。它只针对「直接调用 opencode CLI」的路径，不覆盖 TUI/serve/attach 等二级封装。
+This document describes how three maps config to the OpenCode CLI, how sessions are resumed,
+and OpenCode-specific notes. Output modes and parsing rules live in `docs/cli-output-modes.md`.
 
-模板配置由 three 内置的 adapter catalog 提供（不再使用 `adapter.json` 配置文件）。
+## Scope
 
-## 适用范围
+- Backend: `opencode`
+- Non-interactive `opencode run` mode
+- Output details: `docs/cli-output-modes.md` (authoritative)
 
-- 适用于 `three` 的 **OpenCode CLI 后端**（`backend: opencode`）。
-- 采用 **opencode run** 的非交互模式。
-- 输出格式固定为 **json 事件流**（`--format json`）。
-
-## 当前命令模板（概念版）
-
-等价于如下模板逻辑（顺序很重要）：
+## Command template (conceptual)
 
 ```
 run
@@ -22,44 +19,40 @@ run
 {{ prompt }}
 ```
 
-## Prompt & 参数边界
+## Parameter mapping
 
-- prompt 作为 **最后一个位置参数** 传入，不使用 `--prompt`。
-- three 使用 **进程 current_dir** 设置工作目录；`--dir` 仅适用于 TUI/attach，不用于 `opencode run`。
-- 当前模板 **不自动插入 `--`** 作为参数边界。
+### Model
 
-## 会话控制说明
+- `roles.<id>.model` -> `-m <provider/model>`
+- If `model == "default"`, three omits `-m`.
 
-- three 仅在已有 `session_id` 时传 `-s`，**不会使用 `--continue`**。
-- 只有 `--format json` 才会输出 session id；`--format default` **不包含** session id。
+### Prompt
 
-## 输出解析规则
+- Prompt is the last positional argument.
 
-- `--format json` 输出为 **JSONL 事件流**。
-- `session_id_path` 采用 `part.sessionID`（事件内字段）。
-- `message_path` 采用 `part.text`（文本事件中的内容）。
+### Session resume
 
-对应 adapter 配置示例：
+- If `session_id` exists: `-s <id>`
+- `--continue` is not used.
 
-```
-"output_parser": {
-  "type": "json_stream",
-  "session_id_path": "part.sessionID",
-  "message_path": "part.text",
-  "pick": "last"
-}
-```
+### Filesystem
 
-## Capabilities 映射
+- OpenCode CLI has no read-only flag.
+- three rejects read-only roles for this backend.
 
-- OpenCode CLI 的 `run` 模式 **没有** 与 `read-only / shell / network` 直接对应的 flags。
-- three 通过 adapter 的 `filesystem_capabilities` 做**按 role 校验**：
-  - `opencode` 仅声明 `read-write`，因此 `filesystem: read-only` 会在解析 role 时失败。
-- 如需软约束，请通过 prompt guardrail 或自定义 adapter 实现。
+### options / variants
 
-## Model 默认值（重要）
+- Not mapped by default; extend the adapter template if needed.
 
-当 `model == "default"` 时，three **不会传 `-m`**，让 OpenCode 使用其默认模型或会话内默认设置。
+## Output modes
 
-`-m` 传入的模型名应为 **provider/model**（可用 `opencode models` 查看），例如 `cchGemini/gemini-3-flash-preview`。
-因此配置里通常写成 `opencode/cchGemini/gemini-3-flash-preview`。
+See `docs/cli-output-modes.md`.
+
+## Notes and limitations
+
+- `--format default` does not include a session id; three always uses `--format json`.
+- Only `type: text` events carry `part.text`; other events are ignored.
+
+## Default model behavior
+
+When `model == "default"`, three does not pass `-m`; OpenCode uses its configured default.

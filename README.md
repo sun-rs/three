@@ -10,6 +10,11 @@ Multi-agent, multi-LLM vibe-coding CLI system (MCP server + plugins) for Codex, 
 - `mcp-server-three/` — MCP server (Rust). Routes prompts to configured backends with session reuse.
 - `plugins/claude-code/three/` — Claude Code plugin (slash commands + routing skill).
 
+## Docs index
+
+- `docs/cli-output-modes.md` — authoritative output/stream parsing rules (start here)
+- `docs/cli-*.md` — per-CLI flag mapping, session resume, and CLI-specific notes
+
 ## CLI adapter matrix
 
 All backends are driven by the embedded adapter catalog (MiniJinja `args_template` + `output_parser`).

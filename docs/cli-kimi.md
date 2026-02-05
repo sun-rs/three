@@ -1,16 +1,15 @@
-# Kimi CLI 操纵规则（three）
+# Kimi CLI (three)
 
-本文件描述 **three** 在 `backend.kimi` 下对 Kimi Code CLI 的参数映射、会话控制与输出解析规则。它只针对「直接调用 Kimi CLI」的路径，不覆盖 wire/acp 等二级封装。
+This document describes how three maps config to the Kimi CLI, how sessions are resumed,
+and Kimi-specific notes. Output modes and parsing rules live in `docs/cli-output-modes.md`.
 
-模板配置由 three 内置的 adapter catalog 提供（不再使用 `adapter.json` 配置文件）。
+## Scope
 
-## 适用范围
+- Backend: `kimi`
+- Non-interactive print mode
+- Output details: `docs/cli-output-modes.md` (authoritative)
 
-- 适用于 `three` 的 **Kimi CLI 后端**（`backend: kimi`）。
-- 采用 **print 模式**（非交互）。
-- 输出格式使用 **text**，并启用 `--final-message-only`。
-
-## 当前命令模板（概念版）
+## Command template (conceptual)
 
 ```
 --print
@@ -19,55 +18,57 @@
 --final-message-only
 --work-dir {{ workdir }}
 {% if model != 'default' %}--model {{ model }}{% endif %}
+{% if resume and not session_id %}--continue{% endif %}
 {% if session_id %}--session {{ session_id }}{% endif %}
 --prompt {{ prompt_or_guardrail }}
 ```
 
-其中 `prompt_or_guardrail` 为：
+`prompt_or_guardrail`:
 
 ```
 {% if capabilities.filesystem == 'read-only' %}
 {{ prompt }}
-不允许写文件
+[guardrail: do not write files]
 {% else %}
 {{ prompt }}
 {% endif %}
 ```
 
-## Prompt & 参数边界
+## Parameter mapping
 
-- three 将最终 prompt 作为 `--prompt` 的 **单个参数** 传入。
-- 不使用 stdin，不自动插入 `--` 作为参数边界。
-- 如需其它 CLI 行为，请显式扩展 `adapter.args_template`。
+### Model
 
-## 会话控制说明
+- `roles.<id>.model` -> `--model <model>`
+- If `model == "default"`, three omits `--model`.
 
-- Kimi CLI 支持 `--session <id>` 和 `--continue`。
-- three 仅在有显式 session_id 时使用 `--session`，**不会使用 `--continue`**。
-- Kimi 的 text 输出 **不包含 session_id**，因此 three 默认视为 `stateless`，无法自动续接。
+### Prompt
 
-## 输出解析规则
+- Passed as a single argument to `--prompt`.
 
-Kimi 的 `--output-format text` 为纯文本输出，three 使用 `text` 解析器：
+### Session resume
 
-```
-"output_parser": {
-  "type": "text"
-}
-```
+- If `session_id` exists: `--session <id>`
+- If no session id but history exists for the same repo+role: `--continue`
 
-该解析器会把 stdout trim 后作为 `agent_messages`，并将 session 设为 `stateless`。
+### Filesystem / approval
 
-## 读写权限（重要）
+- Kimi CLI does not expose a read-only flag.
+- three uses a prompt guardrail for read-only roles (best effort). The exact guardrail
+  string is defined in the adapter template.
 
-- `--print` 模式会**隐式开启 yolo/auto-approve**，Kimi CLI 没有可用的 `--no-yolo` 或等价关闭方式。
-- 因此 **read-only 无法被强制**。
-- three 通过 adapter 的 `filesystem_capabilities` 做**按 role 校验**：
-  - `kimi` 仅声明 `read-write`，因此 `filesystem: read-only` 会在解析 role 时失败。
+### options / variants
 
-结论：**Kimi 不支持 read‑only**。如需软约束，请使用 `read-write` 并在 prompt 中自行加 guardrail。
+- Not mapped by default; extend the adapter template if needed.
 
-## Model 默认值（重要）
+## Output modes
 
-当 `model == "default"` 时，three **不会传 `--model`**，让 Kimi 使用其配置文件中的默认模型。
-这同样适用于其他 CLI 后端（claude/codex/gemini/opencode）。
+See `docs/cli-output-modes.md`.
+
+## Notes and limitations
+
+- `--print` is required to avoid interactive mode.
+- Text output does not include a session id; resume relies on `--continue`.
+
+## Default model behavior
+
+When `model == "default"`, three does not pass `--model`; Kimi uses its configured default.
