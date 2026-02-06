@@ -18,6 +18,7 @@ Use this skill to decide delegation strategy before calling three MCP tools.
 7. Use `$three-sprinter` for rapid option generation.
 8. Use `$three-conductor` for multi-role orchestration.
 9. Use `$three-roundtable` for complex decisions requiring 1-3 feedback rounds.
+10. If user asks the same question to all members, use one `mcp__three__batch` call (not serial `mcp__three__three` calls).
 
 ## MCP call standards
 

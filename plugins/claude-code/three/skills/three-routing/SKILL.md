@@ -51,6 +51,8 @@ If the user message contains:
 - If multi-file / risky / tradeoffs, consult `oracle`.
 - If you need implementation depth, consult `builder`.
 - If you need multiple perspectives, run a roundtable.
+- For roundtable execution, each round must use one `mcp__three__batch` call for all participants (no serial `mcp__three__three` loop).
+- If user asks the same question to all members, use one `mcp__three__batch` call.
 - If you need parallel, independent work items, use `mcp__three__batch`.
 - If you need quick options, consult `sprinter`.
 - If you need evidence or docs, consult `researcher`.

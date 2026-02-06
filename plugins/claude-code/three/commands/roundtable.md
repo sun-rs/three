@@ -8,7 +8,7 @@ Use this when the question is ambiguous, multi-tradeoff, or benefits from multip
 
 ## Conductor (you)
 
-You are the Conductor. You host the session, pick participants, and synthesize the outcome.
+You are the Conductor. You host the session, pick participants, feed disagreements back in later rounds, and synthesize the outcome.
 
 ## Default role pool (only if enabled in config)
 
@@ -21,6 +21,13 @@ You are the Conductor. You host the session, pick participants, and synthesize t
 | `critic` | Contrarian risk analysis and failure modes. |
 | `sprinter` | Fast ideation and quick options (not exhaustive). |
 
+## Execution rule (important)
+
+- For each round, make **one** `mcp__three__batch` call that includes all participants.
+- Do **not** emulate a round by looping serial `mcp__three__three` calls.
+- Do **not** use `mcp__three__roundtable` for this command; this command requires conductor-managed multi-round feedback.
+- Round 2 and Round 3 are **resume-only**: always `force_new_session=false` and always pass each participant's Round 1 `backend_session_id` as `session_id`.
+
 ## Steps (multi-round, up to 3)
 
 1. Take the text after the command as `TOPIC`.
@@ -32,49 +39,49 @@ You are the Conductor. You host the session, pick participants, and synthesize t
    Build the callable role set from `info.roles` where `enabled=true`.
    If fewer than 3 roles are enabled, stop and explain the minimum requirement.
 
-3. Pick 3–5 participants **only from enabled roles**.
+3. Pick 3-5 participants **only from enabled roles**.
    - Prefer role combinations that cover planning + implementation + validation
    - If available, include `critic` to reduce false consensus
    - If available, include `reviewer` for quality/risk review
 
 4. Round 1 (independent positions, new sessions):
-   - For each participant, call `mcp__three__three` with:
-     - `PROMPT`: use the Round 1 prompt template below
-     - `cd`: `.`
+   - Call `mcp__three__batch` once with one task per participant:
+     - `PROMPT`: Round 1 prompt template below (role-specific)
      - `role`: participant role
-     - `client`: `"claude"`
+     - `name`: participant role (or unique label)
      - `force_new_session`: `true`
+     - `client`: `"claude"`
      - `conversation_id`: pass only if host can provide a stable main-chat id
-   - Capture each output + `backend_session_id` (for round 2/3).
+   - Capture each participant output + `backend_session_id` for round 2/3.
 
 5. Analyze Round 1:
-   - Summarize each participant’s position
+   - Summarize each participant position
    - Identify **major disagreements** and **open questions**
-   - If consensus is strong **and** critic has no major objections → you may stop early and report.
-   - Otherwise → proceed to Round 2.
+   - If consensus is strong **and** critic has no major objections -> you may stop early and report.
+   - Otherwise -> proceed to Round 2.
 
 6. Round 2 (disagreement feedback, resume sessions):
-   - For each participant, call `mcp__three__three` with:
-     - `PROMPT`: Round 2 prompt (includes other participants’ views + disagreements)
-     - `cd`: `.`
+   - Call `mcp__three__batch` once with one task per participant:
+     - `PROMPT`: Round 2 prompt (includes other participants views + disagreements)
      - `role`: participant role
-     - `client`: `"claude"`
-     - `session_id`: that participant’s Round 1 session id
+     - `name`: same participant label as Round 1
+     - `session_id`: that participant Round 1 `backend_session_id`
      - `force_new_session`: `false`
+     - `client`: `"claude"`
      - `conversation_id`: same value as Round 1 when available
 
 7. Analyze Round 2:
-   - If disagreements are resolved or converging → you may stop early and report.
-   - If material disagreements remain or more evidence is needed → proceed to Round 3.
+   - If disagreements are resolved or converging -> you may stop early and report.
+   - If material disagreements remain or more evidence is needed -> proceed to Round 3.
 
 8. Round 3 (final confirmation, resume sessions):
-   - For each participant, call `mcp__three__three` with:
+   - Call `mcp__three__batch` once with one task per participant:
      - `PROMPT`: Round 3 prompt (emerging consensus + remaining concerns)
-     - `cd`: `.`
      - `role`: participant role
-     - `client`: `"claude"`
-     - `session_id`: that participant’s Round 1 session id
+     - `name`: same participant label as Round 1
+     - `session_id`: that participant Round 1 `backend_session_id`
      - `force_new_session`: `false`
+     - `client`: `"claude"`
      - `conversation_id`: same value as Round 1 when available
 
 9. Final report (Conductor output):
