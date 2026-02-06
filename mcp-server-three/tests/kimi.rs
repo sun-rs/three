@@ -1,16 +1,16 @@
+use std::env;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
-use std::env;
 
-use regex::Regex;
-use tokio::sync::Mutex;
 use mcp_server_three::{
     backend,
     config::ConfigLoader,
     server::{VibeArgs, VibeServer},
     session_store::SessionStore,
 };
+use regex::Regex;
+use tokio::sync::Mutex;
 
 fn kimi_test_lock() -> &'static Mutex<()> {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -44,14 +44,8 @@ fn write_kimi_config(path: &Path) {
     std::fs::write(path, cfg).unwrap();
 }
 
-fn render_args_for_role(
-    cfg_path: &Path,
-    repo: &Path,
-    role: &str,
-    prompt: &str,
-) -> Vec<String> {
-    let loader =
-        ConfigLoader::new(Some(cfg_path.to_path_buf()));
+fn render_args_for_role(cfg_path: &Path, repo: &Path, role: &str, prompt: &str) -> Vec<String> {
+    let loader = ConfigLoader::new(Some(cfg_path.to_path_buf()));
     let cfg = loader.load_for_repo(repo).unwrap().unwrap();
     let rp = cfg.resolve_profile(Some(role)).unwrap();
     backend::render_args(&backend::GenericOptions {
@@ -85,10 +79,7 @@ async fn run_role(
     prompt: String,
 ) -> mcp_server_three::server::VibeOutput {
     let store = SessionStore::new(repo.join("sessions.json"));
-    let server = VibeServer::new(
-        ConfigLoader::new(Some(cfg_path.to_path_buf())),
-        store,
-    );
+    let server = VibeServer::new(ConfigLoader::new(Some(cfg_path.to_path_buf())), store);
 
     server
         .run_vibe_internal(
@@ -107,6 +98,8 @@ async fn run_role(
                 contract: None,
                 validate_patch: false,
                 client: None,
+
+                conversation_id: None,
             },
         )
         .await
@@ -194,10 +187,7 @@ async fn e2e_kimi_continue_used_when_history_exists() {
     let _path_guard = ScopedPath::new(&bin_dir);
 
     let store = SessionStore::new(repo.join("sessions.json"));
-    let server = VibeServer::new(
-        ConfigLoader::new(Some(cfg_path.to_path_buf())),
-        store,
-    );
+    let server = VibeServer::new(ConfigLoader::new(Some(cfg_path.to_path_buf())), store);
 
     let first = server
         .run_vibe_internal(
@@ -216,6 +206,8 @@ async fn e2e_kimi_continue_used_when_history_exists() {
                 contract: None,
                 validate_patch: false,
                 client: None,
+
+                conversation_id: None,
             },
         )
         .await
@@ -239,6 +231,8 @@ async fn e2e_kimi_continue_used_when_history_exists() {
                 contract: None,
                 validate_patch: false,
                 client: None,
+
+                conversation_id: None,
             },
         )
         .await
@@ -272,7 +266,11 @@ async fn cfgtest_real_kimi_smoke() {
 
     assert!(out.success, "error={:?}", out.error);
     let re = Regex::new(r"DATE:\d{4}-\d{2}-\d{2}").unwrap();
-    assert!(re.is_match(&out.agent_messages), "msg={}", out.agent_messages);
+    assert!(
+        re.is_match(&out.agent_messages),
+        "msg={}",
+        out.agent_messages
+    );
 }
 
 #[tokio::test]
@@ -297,7 +295,11 @@ async fn cfgtest_real_kimi_reader_create_file() {
     let out = run_role(&cfg_path, &repo, "reader", prompt).await;
 
     assert!(out.success, "error={:?}", out.error);
-    assert!(out.agent_messages.contains("RESULT:true"), "msg={}", out.agent_messages);
+    assert!(
+        out.agent_messages.contains("RESULT:true"),
+        "msg={}",
+        out.agent_messages
+    );
     assert!(target.exists(), "expected file to be created");
     let content = std::fs::read_to_string(&target).unwrap_or_default();
     assert!(content.contains("hello"), "content={}", content);
@@ -325,7 +327,11 @@ async fn cfgtest_real_kimi_readwrite_create_file() {
     let out = run_role(&cfg_path, &repo, "writer", prompt).await;
 
     assert!(out.success, "error={:?}", out.error);
-    assert!(out.agent_messages.contains("RESULT:true"), "msg={}", out.agent_messages);
+    assert!(
+        out.agent_messages.contains("RESULT:true"),
+        "msg={}",
+        out.agent_messages
+    );
     assert!(target.exists(), "expected file to be created");
     let content = std::fs::read_to_string(&target).unwrap_or_default();
     assert!(content.contains("hello"), "content={}", content);

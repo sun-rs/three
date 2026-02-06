@@ -79,12 +79,26 @@ impl SessionStore {
     }
 
     pub fn compute_key(repo_root: &Path, role: &str, role_id: &str) -> String {
+        Self::compute_key_with_scope(repo_root, role, role_id, None, None)
+    }
+
+    pub fn compute_key_with_scope(
+        repo_root: &Path,
+        role: &str,
+        role_id: &str,
+        client: Option<&str>,
+        conversation_id: Option<&str>,
+    ) -> String {
         let mut h = Sha256::new();
         h.update(repo_root.to_string_lossy().as_bytes());
         h.update(b"\n");
         h.update(role.as_bytes());
         h.update(b"\n");
         h.update(role_id.as_bytes());
+        h.update(b"\n");
+        h.update(client.unwrap_or("-").as_bytes());
+        h.update(b"\n");
+        h.update(conversation_id.unwrap_or("-").as_bytes());
         hex::encode(h.finalize())
     }
 
@@ -186,8 +200,12 @@ impl SessionStore {
             .to_string();
         let backup_name = format!("{}.bak.{}", file_name, now_unix_secs());
         let backup_path = self.path.with_file_name(backup_name);
-        std::fs::rename(&self.path, &backup_path)
-            .with_context(|| format!("failed to backup corrupt store to {}", backup_path.display()))?;
+        std::fs::rename(&self.path, &backup_path).with_context(|| {
+            format!(
+                "failed to backup corrupt store to {}",
+                backup_path.display()
+            )
+        })?;
         Ok(backup_path)
     }
 
@@ -200,8 +218,7 @@ impl SessionStore {
                 .truncate(true)
                 .open(&tmp_path)
                 .with_context(|| format!("failed to open temp store: {}", tmp_path.display()))?;
-            tmp.write_all(bytes)
-                .context("failed to write temp store")?;
+            tmp.write_all(bytes).context("failed to write temp store")?;
             tmp.write_all(b"\n").ok();
             tmp.flush().ok();
             tmp.sync_all().ok();
@@ -245,10 +262,31 @@ mod tests {
     #[test]
     fn compute_key_is_stable() {
         let repo = PathBuf::from("/tmp/repo");
-        let k1 = SessionStore::compute_key(&repo, "role", "role");
-        let k2 = SessionStore::compute_key(&repo, "role", "role");
+        let k1 = SessionStore::compute_key_with_scope(&repo, "role", "role", None, None);
+        let k2 = SessionStore::compute_key_with_scope(&repo, "role", "role", None, None);
         assert_eq!(k1, k2);
-        assert_ne!(k1, SessionStore::compute_key(&repo, "role", "role2"));
+        assert_ne!(
+            k1,
+            SessionStore::compute_key_with_scope(&repo, "role", "role2", None, None)
+        );
+    }
+
+    #[test]
+    fn compute_key_scopes_client_and_conversation() {
+        let repo = PathBuf::from("/tmp/repo");
+        let base = SessionStore::compute_key_with_scope(&repo, "oracle", "oracle", None, None);
+        let by_client =
+            SessionStore::compute_key_with_scope(&repo, "oracle", "oracle", Some("claude"), None);
+        let by_conversation = SessionStore::compute_key_with_scope(
+            &repo,
+            "oracle",
+            "oracle",
+            Some("claude"),
+            Some("conv-a"),
+        );
+
+        assert_ne!(base, by_client);
+        assert_ne!(by_client, by_conversation);
     }
 
     #[test]
@@ -259,7 +297,13 @@ mod tests {
         let repo = td.path().join("repo");
         std::fs::create_dir_all(&repo).unwrap();
 
-        let key = SessionStore::compute_key(&repo, "impl", "codex:default:default");
+        let key = SessionStore::compute_key_with_scope(
+            &repo,
+            "impl",
+            "codex:default:default",
+            None,
+            None,
+        );
         store
             .put(
                 &key,

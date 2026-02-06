@@ -10,7 +10,7 @@ Use this when the question is ambiguous, multi-tradeoff, or benefits from multip
 
 You are the Conductor. You host the session, pick participants, and synthesize the outcome.
 
-## Preset roles (recommended)
+## Default role pool (only if enabled in config)
 
 | Role | Summary |
 | --- | --- |
@@ -29,18 +29,13 @@ You are the Conductor. You host the session, pick participants, and synthesize t
    - `cd`: `.`
    - `client`: `"claude"`
 
-   If any of these roles are missing or `enabled=false`, stop and explain:
-   - `oracle`, `builder`, `researcher`
-   - list available roles
-   - suggest either adding the missing roles or choosing different roles and re-running
+   Build the callable role set from `info.roles` where `enabled=true`.
+   If fewer than 3 roles are enabled, stop and explain the minimum requirement.
 
-   If `critic` is missing, warn that the discussion may converge too early.
-
-3. Pick 3–5 participants from the available roles.
-   - Default set: `oracle`, `builder`, `researcher`
-   - Add `critic` whenever possible (prevents false consensus)
-   - Add `reviewer` for quality/risk review
-   - Add `sprinter` for fast idea generation (non-exhaustive)
+3. Pick 3–5 participants **only from enabled roles**.
+   - Prefer role combinations that cover planning + implementation + validation
+   - If available, include `critic` to reduce false consensus
+   - If available, include `reviewer` for quality/risk review
 
 4. Round 1 (independent positions, new sessions):
    - For each participant, call `mcp__three__three` with:
@@ -49,6 +44,7 @@ You are the Conductor. You host the session, pick participants, and synthesize t
      - `role`: participant role
      - `client`: `"claude"`
      - `force_new_session`: `true`
+     - `conversation_id`: pass only if host can provide a stable main-chat id
    - Capture each output + `backend_session_id` (for round 2/3).
 
 5. Analyze Round 1:
@@ -65,6 +61,7 @@ You are the Conductor. You host the session, pick participants, and synthesize t
      - `client`: `"claude"`
      - `session_id`: that participant’s Round 1 session id
      - `force_new_session`: `false`
+     - `conversation_id`: same value as Round 1 when available
 
 7. Analyze Round 2:
    - If disagreements are resolved or converging → you may stop early and report.
@@ -78,6 +75,7 @@ You are the Conductor. You host the session, pick participants, and synthesize t
      - `client`: `"claude"`
      - `session_id`: that participant’s Round 1 session id
      - `force_new_session`: `false`
+     - `conversation_id`: same value as Round 1 when available
 
 9. Final report (Conductor output):
    - **Conclusion** (1 paragraph)

@@ -42,7 +42,11 @@ impl ConfigLoader {
         let mut paths = Vec::new();
         if let Some(client) = client {
             if !client.is_empty() {
-                paths.push(repo_root.join(".three").join(format!("config-{client}.json")));
+                paths.push(
+                    repo_root
+                        .join(".three")
+                        .join(format!("config-{client}.json")),
+                );
             }
         }
         paths.extend(Self::project_config_paths(repo_root));
@@ -74,9 +78,7 @@ impl ConfigLoader {
     ///
     /// Precedence: project overrides user. If neither exists, returns None.
     pub fn load_for_repo(&self, repo_root: &Path) -> Result<Option<VibeConfig>> {
-        Ok(self
-            .load_for_repo_with_client(repo_root, None)?
-            .config)
+        Ok(self.load_for_repo_with_client(repo_root, None)?.config)
     }
 
     pub fn load_for_repo_with_client(
@@ -119,7 +121,10 @@ impl ConfigLoader {
             apply_adapter_catalog(cfg_val, &catalog);
         }
 
-        Ok(ConfigLoadResult { config: cfg, sources })
+        Ok(ConfigLoadResult {
+            config: cfg,
+            sources,
+        })
     }
 }
 
@@ -211,7 +216,9 @@ impl OutputParserConfig {
         match self {
             OutputParserConfig::JsonStream { .. } => true,
             OutputParserConfig::Regex { .. } => true,
-            OutputParserConfig::JsonObject { session_id_path, .. } => session_id_path
+            OutputParserConfig::JsonObject {
+                session_id_path, ..
+            } => session_id_path
                 .as_ref()
                 .map(|p| !p.trim().is_empty())
                 .unwrap_or(false),
@@ -418,10 +425,7 @@ impl VibeConfig {
         Ok(cfg)
     }
 
-    pub fn resolve_profile(
-        &self,
-        role: Option<&str>,
-    ) -> Result<ResolvedProfile> {
+    pub fn resolve_profile(&self, role: Option<&str>) -> Result<ResolvedProfile> {
         let role_id = role.ok_or_else(|| anyhow!("'role' must be provided when using config"))?;
         let role_cfg = self
             .roles
@@ -494,11 +498,9 @@ impl VibeConfig {
                         "backend {backend_id} defines fallback but no fallback.patterns"
                     ));
                 }
-                let (fallback_backend_id, model_id, variant) = parse_role_model_ref(&fallback.model)
-                    .with_context(|| {
-                        format!(
-                            "invalid backend fallback model reference: {backend_id}"
-                        )
+                let (fallback_backend_id, model_id, variant) =
+                    parse_role_model_ref(&fallback.model).with_context(|| {
+                        format!("invalid backend fallback model reference: {backend_id}")
                     })?;
                 if !self.backend.contains_key(&fallback_backend_id) {
                     return Err(anyhow!(
@@ -726,7 +728,10 @@ mod tests {
 
         let err = VibeConfig::load(&path).unwrap_err();
         let msg = err.to_string();
-        assert!(msg.contains("fallback") && msg.contains("patterns"), "unexpected error: {msg}");
+        assert!(
+            msg.contains("fallback") && msg.contains("patterns"),
+            "unexpected error: {msg}"
+        );
     }
 
     #[test]
@@ -753,7 +758,10 @@ mod tests {
 
         let err = VibeConfig::load(&path).unwrap_err();
         let msg = err.to_string();
-        assert!(msg.contains("fallback_models") && msg.contains("roles"), "unexpected error: {msg}");
+        assert!(
+            msg.contains("fallback_models") && msg.contains("roles"),
+            "unexpected error: {msg}"
+        );
     }
 
     #[test]
@@ -892,7 +900,10 @@ mod tests {
             FilesystemCapability::ReadWrite
         );
         assert_eq!(resolved.profile.capabilities.shell, ShellCapability::Allow);
-        assert_eq!(resolved.profile.capabilities.network, NetworkCapability::Allow);
+        assert_eq!(
+            resolved.profile.capabilities.network,
+            NetworkCapability::Allow
+        );
         assert_eq!(resolved.profile.capabilities.tools, vec!["*".to_string()]);
     }
 
@@ -1019,7 +1030,8 @@ mod tests {
     }
 
     #[test]
-    fn example_gemini_adapter_uses_sandbox_and_prompt() {        let catalog = embedded_adapter_catalog();
+    fn example_gemini_adapter_uses_sandbox_and_prompt() {
+        let catalog = embedded_adapter_catalog();
         let gemini = catalog.adapters.get("gemini").expect("gemini adapter");
         let args = &gemini.args_template;
 
@@ -1042,7 +1054,8 @@ mod tests {
     }
 
     #[test]
-    fn example_opencode_adapter_uses_sessionid_part_text() {        let catalog = embedded_adapter_catalog();
+    fn example_opencode_adapter_uses_sessionid_part_text() {
+        let catalog = embedded_adapter_catalog();
         let opencode = catalog.adapters.get("opencode").expect("opencode adapter");
 
         match &opencode.output_parser {
@@ -1061,11 +1074,17 @@ mod tests {
     }
 
     #[test]
-    fn example_claude_adapter_uses_json_object() {        let catalog = embedded_adapter_catalog();
+    fn example_claude_adapter_uses_json_object() {
+        let catalog = embedded_adapter_catalog();
         let claude = catalog.adapters.get("claude").expect("claude adapter");
         assert_eq!(
             claude.filesystem_capabilities.as_deref(),
-            Some(&[FilesystemCapability::ReadOnly, FilesystemCapability::ReadWrite][..])
+            Some(
+                &[
+                    FilesystemCapability::ReadOnly,
+                    FilesystemCapability::ReadWrite
+                ][..]
+            )
         );
         match &claude.output_parser {
             OutputParserConfig::JsonObject {
@@ -1080,11 +1099,17 @@ mod tests {
     }
 
     #[test]
-    fn example_codex_adapter_uses_json_stream() {        let catalog = embedded_adapter_catalog();
+    fn example_codex_adapter_uses_json_stream() {
+        let catalog = embedded_adapter_catalog();
         let codex = catalog.adapters.get("codex").expect("codex adapter");
         assert_eq!(
             codex.filesystem_capabilities.as_deref(),
-            Some(&[FilesystemCapability::ReadOnly, FilesystemCapability::ReadWrite][..])
+            Some(
+                &[
+                    FilesystemCapability::ReadOnly,
+                    FilesystemCapability::ReadWrite
+                ][..]
+            )
         );
         match &codex.output_parser {
             OutputParserConfig::JsonStream {
@@ -1102,7 +1127,8 @@ mod tests {
     }
 
     #[test]
-    fn example_kimi_adapter_uses_text_output() {        let catalog = embedded_adapter_catalog();
+    fn example_kimi_adapter_uses_text_output() {
+        let catalog = embedded_adapter_catalog();
         let kimi = catalog.adapters.get("kimi").expect("kimi adapter");
         assert_eq!(
             kimi.filesystem_capabilities.as_deref(),
@@ -1126,9 +1152,15 @@ mod tests {
 
         let oracle = cfg.resolve_profile(Some("oracle")).unwrap();
         assert_eq!(oracle.role_id, "oracle");
-        assert_eq!(oracle.profile.capabilities.filesystem, FilesystemCapability::ReadWrite);
+        assert_eq!(
+            oracle.profile.capabilities.filesystem,
+            FilesystemCapability::ReadWrite
+        );
         assert_eq!(oracle.profile.capabilities.shell, ShellCapability::Allow);
-        assert_eq!(oracle.profile.capabilities.network, NetworkCapability::Allow);
+        assert_eq!(
+            oracle.profile.capabilities.network,
+            NetworkCapability::Allow
+        );
         let backend_cfg = cfg.backend.get("codex").unwrap();
         let fallback = backend_cfg.fallback.as_ref().expect("fallback");
         assert_eq!(fallback.model, "codex/gpt-5.2@high");
@@ -1170,7 +1202,10 @@ mod tests {
 
         let err = cfg.resolve_profile(Some("reader")).unwrap_err();
         let msg = err.to_string();
-        assert!(msg.contains("filesystem capability") && msg.contains("opencode"), "unexpected error: {msg}");
+        assert!(
+            msg.contains("filesystem capability") && msg.contains("opencode"),
+            "unexpected error: {msg}"
+        );
     }
 
     #[test]
@@ -1209,13 +1244,15 @@ mod tests {
 
         let err = cfg.resolve_profile(Some("reader")).unwrap_err();
         let msg = err.to_string();
-        assert!(msg.contains("filesystem capability") && msg.contains("kimi"), "unexpected error: {msg}");
+        assert!(
+            msg.contains("filesystem capability") && msg.contains("kimi"),
+            "unexpected error: {msg}"
+        );
     }
 
     fn write_cfg(path: &Path, json: &str) {
         std::fs::write(path, json).unwrap();
     }
-
 
     #[test]
     fn resolves_codex_variant_overrides_options() {
@@ -1256,25 +1293,25 @@ mod tests {
         let cfg = loader.load_for_repo(&repo).unwrap().unwrap();
 
         let base = cfg.resolve_profile(Some("oracle")).unwrap();
-        let base_effort = base
-            .profile
-            .options
-            .get("model_reasoning_effort")
-            .and_then(|v| match v {
-                OptionValue::String(s) => Some(s.as_str()),
-                _ => None,
-            });
+        let base_effort =
+            base.profile
+                .options
+                .get("model_reasoning_effort")
+                .and_then(|v| match v {
+                    OptionValue::String(s) => Some(s.as_str()),
+                    _ => None,
+                });
         assert_eq!(base_effort, Some("high"));
 
         let fast = cfg.resolve_profile(Some("oracle-fast")).unwrap();
-        let fast_effort = fast
-            .profile
-            .options
-            .get("model_reasoning_effort")
-            .and_then(|v| match v {
-                OptionValue::String(s) => Some(s.as_str()),
-                _ => None,
-            });
+        let fast_effort =
+            fast.profile
+                .options
+                .get("model_reasoning_effort")
+                .and_then(|v| match v {
+                    OptionValue::String(s) => Some(s.as_str()),
+                    _ => None,
+                });
         assert_eq!(fast_effort, Some("low"));
     }
 
@@ -1316,14 +1353,23 @@ mod tests {
         let cfg = loader.load_for_repo(&repo).unwrap().unwrap();
 
         let reader = cfg.resolve_profile(Some("reader")).unwrap();
-        assert_eq!(reader.profile.capabilities.filesystem, FilesystemCapability::ReadOnly);
+        assert_eq!(
+            reader.profile.capabilities.filesystem,
+            FilesystemCapability::ReadOnly
+        );
         assert_eq!(reader.profile.capabilities.shell, ShellCapability::Deny);
         assert_eq!(reader.profile.capabilities.network, NetworkCapability::Deny);
 
         let writer = cfg.resolve_profile(Some("writer")).unwrap();
-        assert_eq!(writer.profile.capabilities.filesystem, FilesystemCapability::ReadWrite);
+        assert_eq!(
+            writer.profile.capabilities.filesystem,
+            FilesystemCapability::ReadWrite
+        );
         assert_eq!(writer.profile.capabilities.shell, ShellCapability::Allow);
-        assert_eq!(writer.profile.capabilities.network, NetworkCapability::Allow);
+        assert_eq!(
+            writer.profile.capabilities.network,
+            NetworkCapability::Allow
+        );
     }
 
     #[test]
@@ -1418,15 +1464,24 @@ mod tests {
 
         let reader = cfg.resolve_profile(Some("claude_reader")).unwrap();
         assert_eq!(reader.profile.backend_id, "claude");
-        assert_eq!(reader.profile.capabilities.filesystem, FilesystemCapability::ReadOnly);
+        assert_eq!(
+            reader.profile.capabilities.filesystem,
+            FilesystemCapability::ReadOnly
+        );
         assert_eq!(reader.profile.capabilities.shell, ShellCapability::Deny);
         assert_eq!(reader.profile.capabilities.network, NetworkCapability::Deny);
 
         let writer = cfg.resolve_profile(Some("claude_writer")).unwrap();
         assert_eq!(writer.profile.backend_id, "claude");
-        assert_eq!(writer.profile.capabilities.filesystem, FilesystemCapability::ReadWrite);
+        assert_eq!(
+            writer.profile.capabilities.filesystem,
+            FilesystemCapability::ReadWrite
+        );
         assert_eq!(writer.profile.capabilities.shell, ShellCapability::Allow);
-        assert_eq!(writer.profile.capabilities.network, NetworkCapability::Allow);
+        assert_eq!(
+            writer.profile.capabilities.network,
+            NetworkCapability::Allow
+        );
     }
 
     #[test]
@@ -1521,15 +1576,24 @@ mod tests {
 
         let reader = cfg.resolve_profile(Some("codex_reader")).unwrap();
         assert_eq!(reader.profile.backend_id, "codex");
-        assert_eq!(reader.profile.capabilities.filesystem, FilesystemCapability::ReadOnly);
+        assert_eq!(
+            reader.profile.capabilities.filesystem,
+            FilesystemCapability::ReadOnly
+        );
         assert_eq!(reader.profile.capabilities.shell, ShellCapability::Deny);
         assert_eq!(reader.profile.capabilities.network, NetworkCapability::Deny);
 
         let writer = cfg.resolve_profile(Some("codex_writer")).unwrap();
         assert_eq!(writer.profile.backend_id, "codex");
-        assert_eq!(writer.profile.capabilities.filesystem, FilesystemCapability::ReadWrite);
+        assert_eq!(
+            writer.profile.capabilities.filesystem,
+            FilesystemCapability::ReadWrite
+        );
         assert_eq!(writer.profile.capabilities.shell, ShellCapability::Allow);
-        assert_eq!(writer.profile.capabilities.network, NetworkCapability::Allow);
+        assert_eq!(
+            writer.profile.capabilities.network,
+            NetworkCapability::Allow
+        );
     }
 
     #[test]
@@ -1624,15 +1688,24 @@ mod tests {
 
         let reader = cfg.resolve_profile(Some("gemini_reader")).unwrap();
         assert_eq!(reader.profile.backend_id, "gemini");
-        assert_eq!(reader.profile.capabilities.filesystem, FilesystemCapability::ReadOnly);
+        assert_eq!(
+            reader.profile.capabilities.filesystem,
+            FilesystemCapability::ReadOnly
+        );
         assert_eq!(reader.profile.capabilities.shell, ShellCapability::Deny);
         assert_eq!(reader.profile.capabilities.network, NetworkCapability::Deny);
 
         let writer = cfg.resolve_profile(Some("gemini_writer")).unwrap();
         assert_eq!(writer.profile.backend_id, "gemini");
-        assert_eq!(writer.profile.capabilities.filesystem, FilesystemCapability::ReadWrite);
+        assert_eq!(
+            writer.profile.capabilities.filesystem,
+            FilesystemCapability::ReadWrite
+        );
         assert_eq!(writer.profile.capabilities.shell, ShellCapability::Allow);
-        assert_eq!(writer.profile.capabilities.network, NetworkCapability::Allow);
+        assert_eq!(
+            writer.profile.capabilities.network,
+            NetworkCapability::Allow
+        );
     }
 
     #[test]
@@ -1727,15 +1800,24 @@ mod tests {
 
         let reader = cfg.resolve_profile(Some("opencode_reader")).unwrap();
         assert_eq!(reader.profile.backend_id, "opencode");
-        assert_eq!(reader.profile.capabilities.filesystem, FilesystemCapability::ReadWrite);
+        assert_eq!(
+            reader.profile.capabilities.filesystem,
+            FilesystemCapability::ReadWrite
+        );
         assert_eq!(reader.profile.capabilities.shell, ShellCapability::Deny);
         assert_eq!(reader.profile.capabilities.network, NetworkCapability::Deny);
 
         let writer = cfg.resolve_profile(Some("opencode_writer")).unwrap();
         assert_eq!(writer.profile.backend_id, "opencode");
-        assert_eq!(writer.profile.capabilities.filesystem, FilesystemCapability::ReadWrite);
+        assert_eq!(
+            writer.profile.capabilities.filesystem,
+            FilesystemCapability::ReadWrite
+        );
         assert_eq!(writer.profile.capabilities.shell, ShellCapability::Allow);
-        assert_eq!(writer.profile.capabilities.network, NetworkCapability::Allow);
+        assert_eq!(
+            writer.profile.capabilities.network,
+            NetworkCapability::Allow
+        );
     }
 
     #[test]
@@ -1830,14 +1912,23 @@ mod tests {
 
         let reader = cfg.resolve_profile(Some("kimi_reader")).unwrap();
         assert_eq!(reader.profile.backend_id, "kimi");
-        assert_eq!(reader.profile.capabilities.filesystem, FilesystemCapability::ReadWrite);
+        assert_eq!(
+            reader.profile.capabilities.filesystem,
+            FilesystemCapability::ReadWrite
+        );
         assert_eq!(reader.profile.capabilities.shell, ShellCapability::Deny);
         assert_eq!(reader.profile.capabilities.network, NetworkCapability::Deny);
 
         let writer = cfg.resolve_profile(Some("kimi_writer")).unwrap();
         assert_eq!(writer.profile.backend_id, "kimi");
-        assert_eq!(writer.profile.capabilities.filesystem, FilesystemCapability::ReadWrite);
+        assert_eq!(
+            writer.profile.capabilities.filesystem,
+            FilesystemCapability::ReadWrite
+        );
         assert_eq!(writer.profile.capabilities.shell, ShellCapability::Allow);
-        assert_eq!(writer.profile.capabilities.network, NetworkCapability::Allow);
+        assert_eq!(
+            writer.profile.capabilities.network,
+            NetworkCapability::Allow
+        );
     }
 }

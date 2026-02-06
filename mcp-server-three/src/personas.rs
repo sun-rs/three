@@ -61,7 +61,7 @@ When unsure:
 - Ask for missing context or scope.
 "#,
         }),
-        "researcher" | "librarian" | "reader" | "explore" | "explorer" => Some(BuiltinPersona {
+        "researcher" => Some(BuiltinPersona {
             description: "Evidence in code/docs/web with citations.",
             prompt: r#"You are Researcher, a documentation and codebase expert.
 

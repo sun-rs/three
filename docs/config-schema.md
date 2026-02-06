@@ -225,14 +225,23 @@ Timeouts resolve in this order (highest to lowest):
 3) `backend.<id>.timeout_secs`
 4) Default `600`
 
-## MCP tool parameter behavior (three)
+## MCP tool parameter behavior (three / batch / roundtable)
 
-This section documents how the `three` MCP tool interprets runtime parameters.
+This section documents how MCP tools interpret runtime parameters.
 
 ### Session key
 
 - If `session_key` is provided, it is used verbatim for persistence/locking.
-- Otherwise, the key is derived as `hash(repo_root + role + role_id)`.
+- Otherwise, the key is derived as `hash(repo_root + role + role_id + client + conversation_id)`.
+  - `client` comes from MCP `client` param (or `THREE_CLIENT`).
+  - `conversation_id` comes from MCP `conversation_id` param (or `THREE_CONVERSATION_ID`).
+  - If `conversation_id` is missing, auto-resume may cross top-level chats that share repo+role (a warning is returned).
+
+### Conversation scoping
+
+- `three`, `batch`, and `roundtable` all accept `conversation_id` (optional).
+- Use the same `conversation_id` across calls in one main CLI chat to keep child-session reuse isolated.
+- `batch` and `roundtable` forward `conversation_id` to each fan-out task.
 
 ### Session resume
 
@@ -256,6 +265,14 @@ This section documents how the `three` MCP tool interprets runtime parameters.
 
 - `contract=patch_with_citations` enforces a patch + citations in the model output.
 - `validate_patch=true` runs `git apply --check` and fails the request if the patch is invalid.
+
+## Roundtable behavior
+
+- `roundtable` fan-outs participant prompts and returns per-participant contributions only.
+- There is no MCP-side `moderator` role parameter.
+- Multi-round synthesis is the conductor/main-CLI responsibility (plugin or skill workflow).
+- `batch` and `roundtable` emit MCP logging notifications during fan-out by default (`started` / `completed role`).
+  Clients that render `notifications/message` can show real-time completion progress.
 
 ## Role → CLI mapping (summary)
 

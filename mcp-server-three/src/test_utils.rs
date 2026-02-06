@@ -1,5 +1,5 @@
-use std::sync::{Mutex, MutexGuard, OnceLock};
 use std::path::PathBuf;
+use std::sync::{Mutex, MutexGuard, OnceLock};
 
 pub struct ScopedEnvVar {
     _lock: MutexGuard<'static, ()>,

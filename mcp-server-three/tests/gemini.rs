@@ -1,8 +1,6 @@
-
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use regex::Regex;
 use mcp_server_three::{
     backend,
     config::ConfigLoader,
@@ -10,6 +8,7 @@ use mcp_server_three::{
     session_store::SessionStore,
     test_utils::example_config_path,
 };
+use regex::Regex;
 
 fn example_loader() -> std::path::PathBuf {
     example_config_path()
@@ -23,14 +22,8 @@ fn resolve_test_command(backend_id: &str) -> String {
     }
 }
 
-fn render_args_for_role(
-    cfg_path: &Path,
-    repo: &Path,
-    role: &str,
-    prompt: &str,
-) -> Vec<String> {
-    let loader =
-        ConfigLoader::new(Some(cfg_path.to_path_buf()));
+fn render_args_for_role(cfg_path: &Path, repo: &Path, role: &str, prompt: &str) -> Vec<String> {
+    let loader = ConfigLoader::new(Some(cfg_path.to_path_buf()));
     let cfg = loader.load_for_repo(repo).unwrap().unwrap();
     let rp = cfg.resolve_profile(Some(role)).unwrap();
     backend::render_args(&backend::GenericOptions {
@@ -64,10 +57,7 @@ async fn run_role(
     prompt: String,
 ) -> mcp_server_three::server::VibeOutput {
     let store = SessionStore::new(repo.join("sessions.json"));
-    let server = VibeServer::new(
-        ConfigLoader::new(Some(cfg_path.to_path_buf())),
-        store,
-    );
+    let server = VibeServer::new(ConfigLoader::new(Some(cfg_path.to_path_buf())), store);
 
     server
         .run_vibe_internal(
@@ -86,6 +76,8 @@ async fn run_role(
                 contract: None,
                 validate_patch: false,
                 client: None,
+
+                conversation_id: None,
             },
         )
         .await
@@ -124,7 +116,10 @@ fn cfgtest_render_gemini_include_directories_handles_extensionless_file() {
     let prompt = format!("Read {}", outside.display());
     let args = render_args_for_role(&cfg_path, &repo, "researcher", &prompt);
 
-    let include_idx = args.iter().position(|v| v == "--include-directories").unwrap();
+    let include_idx = args
+        .iter()
+        .position(|v| v == "--include-directories")
+        .unwrap();
     let include_val = args.get(include_idx + 1).expect("include value");
     let includes: Vec<&str> = include_val.split(',').collect();
     assert!(includes.iter().any(|v| *v == td.path().to_string_lossy()));
@@ -144,7 +139,11 @@ async fn cfgtest_real_gemini_3flash_smoke() {
 
     assert!(out.success, "error={:?}", out.error);
     let re = Regex::new(r"DATE:\d{4}-\d{2}-\d{2}").unwrap();
-    assert!(re.is_match(&out.agent_messages), "msg={}", out.agent_messages);
+    assert!(
+        re.is_match(&out.agent_messages),
+        "msg={}",
+        out.agent_messages
+    );
 }
 
 #[tokio::test]
@@ -161,7 +160,11 @@ async fn cfgtest_real_gemini_3pro_smoke() {
 
     assert!(out.success, "error={:?}", out.error);
     let re = Regex::new(r"DATE:\d{4}-\d{2}-\d{2}").unwrap();
-    assert!(re.is_match(&out.agent_messages), "msg={}", out.agent_messages);
+    assert!(
+        re.is_match(&out.agent_messages),
+        "msg={}",
+        out.agent_messages
+    );
 }
 
 #[tokio::test]
@@ -185,7 +188,11 @@ async fn cfgtest_real_gemini_readonly_create_file() {
     assert!(out.success, "error={:?}", out.error);
     let reported_true = out.agent_messages.contains("RESULT:true");
     let reported_false = out.agent_messages.contains("RESULT:false");
-    assert!(reported_true || reported_false, "msg={}", out.agent_messages);
+    assert!(
+        reported_true || reported_false,
+        "msg={}",
+        out.agent_messages
+    );
     let exists = target.exists();
     assert_eq!(exists, reported_true, "msg={}", out.agent_messages);
     assert!(!exists, "read-only should not create files");
@@ -210,7 +217,11 @@ async fn cfgtest_real_gemini_readwrite_create_file() {
     let out = run_role(&cfg_path, &repo, "sprinter", prompt).await;
 
     assert!(out.success, "error={:?}", out.error);
-    assert!(out.agent_messages.contains("RESULT:true"), "msg={}", out.agent_messages);
+    assert!(
+        out.agent_messages.contains("RESULT:true"),
+        "msg={}",
+        out.agent_messages
+    );
     assert!(target.exists(), "expected file to be created");
     let content = std::fs::read_to_string(&target).unwrap_or_default();
     assert!(content.contains("hello"), "content={}", content);
@@ -236,15 +247,24 @@ async fn cfgtest_real_gemini_include_directories_reads_external_file() {
         expected = content
     );
     let args = render_args_for_role(&cfg_path, &repo, "sprinter", &prompt);
-    let include_idx = args.iter().position(|v| v == "--include-directories").unwrap();
+    let include_idx = args
+        .iter()
+        .position(|v| v == "--include-directories")
+        .unwrap();
     let include_val = args.get(include_idx + 1).expect("include value");
     let includes: Vec<&str> = include_val.split(',').collect();
-    assert!(includes.iter().any(|v| *v == external_dir.to_string_lossy()));
+    assert!(includes
+        .iter()
+        .any(|v| *v == external_dir.to_string_lossy()));
     print_rendered_command(&cfg_path, &repo, "sprinter", &prompt);
     let out = run_role(&cfg_path, &repo, "sprinter", prompt).await;
 
     assert!(out.success, "error={:?}", out.error);
-    assert!(out.agent_messages.contains(&content), "msg={}", out.agent_messages);
+    assert!(
+        out.agent_messages.contains(&content),
+        "msg={}",
+        out.agent_messages
+    );
 }
 
 #[tokio::test]
@@ -276,16 +296,31 @@ async fn cfgtest_real_gemini_include_directories_reads_multiple_external_files()
     );
 
     let args = render_args_for_role(&cfg_path, &repo, "sprinter", &prompt);
-    let include_idx = args.iter().position(|v| v == "--include-directories").unwrap();
+    let include_idx = args
+        .iter()
+        .position(|v| v == "--include-directories")
+        .unwrap();
     let include_val = args.get(include_idx + 1).expect("include value");
     let includes: Vec<&str> = include_val.split(',').collect();
-    assert!(includes.iter().any(|v| *v == external_dir_a.to_string_lossy()));
-    assert!(includes.iter().any(|v| *v == external_dir_b.to_string_lossy()));
+    assert!(includes
+        .iter()
+        .any(|v| *v == external_dir_a.to_string_lossy()));
+    assert!(includes
+        .iter()
+        .any(|v| *v == external_dir_b.to_string_lossy()));
 
     print_rendered_command(&cfg_path, &repo, "sprinter", &prompt);
     let out = run_role(&cfg_path, &repo, "sprinter", prompt).await;
 
     assert!(out.success, "error={:?}", out.error);
-    assert!(out.agent_messages.contains(&content_a), "msg={}", out.agent_messages);
-    assert!(out.agent_messages.contains(&content_b), "msg={}", out.agent_messages);
+    assert!(
+        out.agent_messages.contains(&content_a),
+        "msg={}",
+        out.agent_messages
+    );
+    assert!(
+        out.agent_messages.contains(&content_b),
+        "msg={}",
+        out.agent_messages
+    );
 }

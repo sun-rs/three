@@ -50,7 +50,8 @@ pub fn render_args(opts: &GenericOptions) -> Result<Vec<String>> {
     let transport = resolve_prompt_transport(&opts.adapter, &prompt);
     let env = Environment::new();
     let options_val = serde_json::to_value(&opts.options).context("serialize options")?;
-    let capabilities_val = serde_json::to_value(&opts.capabilities).context("serialize capabilities")?;
+    let capabilities_val =
+        serde_json::to_value(&opts.capabilities).context("serialize capabilities")?;
     let include_directories = detect_include_directories(&opts.prompt, &opts.workdir);
     let prompt_for_args = match transport {
         ResolvedPromptTransport::Arg => prompt.as_str(),
@@ -109,17 +110,27 @@ async fn run_internal(opts: GenericOptions) -> Result<GenericResult> {
         }
     }
 
-    let output = child.wait_with_output().await.context("failed to spawn backend")?;
+    let output = child
+        .wait_with_output()
+        .await
+        .context("failed to spawn backend")?;
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
 
-    if let Some(model_err) = detect_model_error(&stdout, &stderr, &opts.fallback_error_patterns, output.status.success()) {
+    if let Some(model_err) = detect_model_error(
+        &stdout,
+        &stderr,
+        &opts.fallback_error_patterns,
+        output.status.success(),
+    ) {
         return Err(anyhow!("model_not_found: {model_err}"));
     }
 
     if !output.status.success() {
         let code = output.status.code().unwrap_or(-1);
-        return Err(anyhow!("backend exited with status {code}. stderr: {stderr}"));
+        return Err(anyhow!(
+            "backend exited with status {code}. stderr: {stderr}"
+        ));
     }
 
     let (session_id, agent_messages) = parse_output(&opts.adapter.output_parser, &stdout)?;
@@ -127,7 +138,11 @@ async fn run_internal(opts: GenericOptions) -> Result<GenericResult> {
     Ok(GenericResult {
         session_id,
         agent_messages,
-        warnings: if stderr.trim().is_empty() { None } else { Some(stderr) },
+        warnings: if stderr.trim().is_empty() {
+            None
+        } else {
+            Some(stderr)
+        },
     })
 }
 
@@ -141,7 +156,9 @@ fn resolve_command(backend_id: &str) -> String {
 
 fn detect_include_directories(prompt: &str, workdir: &Path) -> String {
     let mut dirs = BTreeSet::new();
-    let workdir_norm = workdir.canonicalize().unwrap_or_else(|_| workdir.to_path_buf());
+    let workdir_norm = workdir
+        .canonicalize()
+        .unwrap_or_else(|_| workdir.to_path_buf());
 
     for raw in prompt.split_whitespace() {
         let token = trim_path_token(raw);
@@ -221,11 +238,7 @@ fn resolve_prompt_transport(adapter: &AdapterConfig, prompt: &str) -> ResolvedPr
     }
 }
 
-fn apply_prompt_guardrails(
-    backend_id: &str,
-    capabilities: &Capabilities,
-    prompt: &str,
-) -> String {
+fn apply_prompt_guardrails(backend_id: &str, capabilities: &Capabilities, prompt: &str) -> String {
     if backend_id == "kimi" && capabilities.filesystem == FilesystemCapability::ReadOnly {
         if prompt.contains(KIMI_READONLY_GUARDRAIL) {
             return prompt.to_string();
@@ -440,10 +453,14 @@ fn parse_codex_jsonl_message(stdout: &str) -> Option<String> {
     }
 }
 
-fn parse_json_object(stdout: &str, session_id_path: Option<&str>, message_path: &str) -> Result<(String, String)> {
+fn parse_json_object(
+    stdout: &str,
+    session_id_path: Option<&str>,
+    message_path: &str,
+) -> Result<(String, String)> {
     let trimmed = stdout.trim();
-    let v: Value =
-        serde_json::from_str(trimmed).with_context(|| format!("failed to parse json output: {trimmed}"))?;
+    let v: Value = serde_json::from_str(trimmed)
+        .with_context(|| format!("failed to parse json output: {trimmed}"))?;
 
     let message = json_path_get(&v, message_path)
         .and_then(|val| val.as_str())
@@ -455,7 +472,9 @@ fn parse_json_object(stdout: &str, session_id_path: Option<&str>, message_path: 
             if path.trim().is_empty() {
                 None
             } else {
-                json_path_get(&v, path).and_then(|val| val.as_str()).map(|s| s.to_string())
+                json_path_get(&v, path)
+                    .and_then(|val| val.as_str())
+                    .map(|s| s.to_string())
             }
         })
         .unwrap_or_else(|| "stateless".to_string());
@@ -463,7 +482,11 @@ fn parse_json_object(stdout: &str, session_id_path: Option<&str>, message_path: 
     Ok((session_id, message))
 }
 
-fn parse_regex(stdout: &str, pattern: &str, message_capture_group: usize) -> Result<(String, String)> {
+fn parse_regex(
+    stdout: &str,
+    pattern: &str,
+    message_capture_group: usize,
+) -> Result<(String, String)> {
     let re = Regex::new(pattern).with_context(|| format!("invalid regex: {pattern}"))?;
     let caps = re
         .captures(stdout)
@@ -502,8 +525,8 @@ mod tests {
     use crate::config::{
         ConfigLoader, FilesystemCapability, NetworkCapability, OutputParserConfig, ShellCapability,
     };
-    use std::path::Path;
     use std::collections::BTreeMap;
+    use std::path::Path;
 
     fn render_args_for_role_with_prompt(
         cfg_path: &Path,
@@ -511,8 +534,7 @@ mod tests {
         role: &str,
         prompt: &str,
     ) -> Vec<String> {
-        let loader =
-            ConfigLoader::new(Some(cfg_path.to_path_buf()));
+        let loader = ConfigLoader::new(Some(cfg_path.to_path_buf()));
         let cfg = loader.load_for_repo(repo).unwrap().unwrap();
         let rp = cfg.resolve_profile(Some(role)).unwrap();
         render_args(&GenericOptions {
@@ -531,11 +553,7 @@ mod tests {
         .unwrap()
     }
 
-    fn render_args_for_role(
-        cfg_path: &Path,
-        repo: &Path,
-        role: &str,
-    ) -> Vec<String> {
+    fn render_args_for_role(cfg_path: &Path, repo: &Path, role: &str) -> Vec<String> {
         render_args_for_role_with_prompt(cfg_path, repo, role, "ping")
     }
 
@@ -545,8 +563,8 @@ mod tests {
         assert!(args.contains(&"-m".to_string()));
         assert!(args.contains(&model.to_string()));
         assert!(args.contains(&"--prompt".to_string()));
-        let has_plan =
-            args.iter().any(|token| token == "--approval-mode") && args.iter().any(|token| token == "plan");
+        let has_plan = args.iter().any(|token| token == "--approval-mode")
+            && args.iter().any(|token| token == "plan");
         assert_eq!(has_plan, expect_plan);
         let has_sandbox = args.iter().any(|token| token == "--sandbox");
         assert_eq!(has_sandbox, expect_sandbox);
@@ -554,7 +572,11 @@ mod tests {
 
     fn load_codex_adapter() -> AdapterConfig {
         let catalog = embedded_adapter_catalog();
-        catalog.adapters.get("codex").expect("codex adapter").clone()
+        catalog
+            .adapters
+            .get("codex")
+            .expect("codex adapter")
+            .clone()
     }
 
     fn load_opencode_adapter() -> AdapterConfig {
@@ -646,7 +668,8 @@ mod tests {
     fn cfgtest_render_kimi_readonly_appends_guardrail() {
         let td = tempfile::tempdir().unwrap();
         let repo = td.path().join("repo");
-        std::fs::create_dir_all(&repo).unwrap();        let catalog = embedded_adapter_catalog();
+        std::fs::create_dir_all(&repo).unwrap();
+        let catalog = embedded_adapter_catalog();
         let adapter = catalog.adapters.get("kimi").expect("kimi adapter").clone();
 
         let args = render_args(&GenericOptions {
@@ -674,7 +697,10 @@ mod tests {
         assert!(args.contains(&"--model".to_string()));
         assert!(args.contains(&"kimi-for-coding".to_string()));
 
-        let prompt_idx = args.iter().position(|v| v == "--prompt").expect("prompt flag");
+        let prompt_idx = args
+            .iter()
+            .position(|v| v == "--prompt")
+            .expect("prompt flag");
         let prompt_val = args.get(prompt_idx + 1).expect("prompt value");
         assert!(prompt_val.contains("ping"));
         assert!(prompt_val.contains("不允许写文件"));
@@ -696,7 +722,8 @@ mod tests {
     fn cfgtest_render_kimi_readwrite_no_guardrail_and_session() {
         let td = tempfile::tempdir().unwrap();
         let repo = td.path().join("repo");
-        std::fs::create_dir_all(&repo).unwrap();        let catalog = embedded_adapter_catalog();
+        std::fs::create_dir_all(&repo).unwrap();
+        let catalog = embedded_adapter_catalog();
         let adapter = catalog.adapters.get("kimi").expect("kimi adapter").clone();
 
         let args = render_args(&GenericOptions {
@@ -716,7 +743,10 @@ mod tests {
 
         assert!(args.contains(&"--session".to_string()));
         assert!(args.contains(&"sess-1".to_string()));
-        let prompt_idx = args.iter().position(|v| v == "--prompt").expect("prompt flag");
+        let prompt_idx = args
+            .iter()
+            .position(|v| v == "--prompt")
+            .expect("prompt flag");
         let prompt_val = args.get(prompt_idx + 1).expect("prompt value");
         assert!(!prompt_val.contains("不允许写文件"));
     }
@@ -752,8 +782,13 @@ mod tests {
     fn cfgtest_render_claude_default_model_skips_model_flag() {
         let td = tempfile::tempdir().unwrap();
         let repo = td.path().join("repo");
-        std::fs::create_dir_all(&repo).unwrap();        let catalog = embedded_adapter_catalog();
-        let adapter = catalog.adapters.get("claude").expect("claude adapter").clone();
+        std::fs::create_dir_all(&repo).unwrap();
+        let catalog = embedded_adapter_catalog();
+        let adapter = catalog
+            .adapters
+            .get("claude")
+            .expect("claude adapter")
+            .clone();
 
         let args = render_args(&GenericOptions {
             backend_id: "claude".to_string(),
@@ -778,8 +813,13 @@ mod tests {
     fn cfgtest_render_gemini_default_model_skips_model_flag() {
         let td = tempfile::tempdir().unwrap();
         let repo = td.path().join("repo");
-        std::fs::create_dir_all(&repo).unwrap();        let catalog = embedded_adapter_catalog();
-        let adapter = catalog.adapters.get("gemini").expect("gemini adapter").clone();
+        std::fs::create_dir_all(&repo).unwrap();
+        let catalog = embedded_adapter_catalog();
+        let adapter = catalog
+            .adapters
+            .get("gemini")
+            .expect("gemini adapter")
+            .clone();
 
         let args = render_args(&GenericOptions {
             backend_id: "gemini".to_string(),
@@ -823,7 +863,8 @@ mod tests {
     fn cfgtest_render_kimi_default_model_skips_model_flag() {
         let td = tempfile::tempdir().unwrap();
         let repo = td.path().join("repo");
-        std::fs::create_dir_all(&repo).unwrap();        let catalog = embedded_adapter_catalog();
+        std::fs::create_dir_all(&repo).unwrap();
+        let catalog = embedded_adapter_catalog();
         let adapter = catalog.adapters.get("kimi").expect("kimi adapter").clone();
 
         let args = render_args(&GenericOptions {
@@ -898,8 +939,7 @@ mod tests {
 
         let cfg_path = crate::test_utils::example_config_path();
         let prompt = format!("Read {}", outside_file.display());
-        let args =
-            render_args_for_role_with_prompt(&cfg_path, &repo, "researcher", &prompt);
+        let args = render_args_for_role_with_prompt(&cfg_path, &repo, "researcher", &prompt);
         assert!(args.contains(&"--include-directories".to_string()));
         assert!(args.contains(&outside.to_string_lossy().to_string()));
     }
@@ -912,8 +952,7 @@ mod tests {
 
         let cfg_path = crate::test_utils::example_config_path();
         let prompt = "[THREE_PERSONA id=researcher]\nfoo\n[/THREE_PERSONA]\nRead this";
-        let args =
-            render_args_for_role_with_prompt(&cfg_path, &repo, "researcher", prompt);
+        let args = render_args_for_role_with_prompt(&cfg_path, &repo, "researcher", prompt);
         assert!(!args.contains(&"--include-directories".to_string()));
         assert!(!args.iter().any(|t| t == "/THREE_PERSONA"));
     }
@@ -928,7 +967,11 @@ mod tests {
         let repo = td.path().join("repo");
         std::fs::create_dir_all(&repo).unwrap();
         let catalog = embedded_adapter_catalog();
-        let adapter = catalog.adapters.get("claude").expect("claude adapter").clone();
+        let adapter = catalog
+            .adapters
+            .get("claude")
+            .expect("claude adapter")
+            .clone();
         let prompt = long_prompt();
 
         let args = render_args(&GenericOptions {
@@ -955,7 +998,11 @@ mod tests {
         let repo = td.path().join("repo");
         std::fs::create_dir_all(&repo).unwrap();
         let catalog = embedded_adapter_catalog();
-        let adapter = catalog.adapters.get("gemini").expect("gemini adapter").clone();
+        let adapter = catalog
+            .adapters
+            .get("gemini")
+            .expect("gemini adapter")
+            .clone();
         let prompt = long_prompt();
 
         let args = render_args(&GenericOptions {
@@ -1011,7 +1058,11 @@ mod tests {
         let repo = td.path().join("repo");
         std::fs::create_dir_all(&repo).unwrap();
         let catalog = embedded_adapter_catalog();
-        let adapter = catalog.adapters.get("opencode").expect("opencode adapter").clone();
+        let adapter = catalog
+            .adapters
+            .get("opencode")
+            .expect("opencode adapter")
+            .clone();
         let prompt = long_prompt();
 
         let args = render_args(&GenericOptions {

@@ -1,4 +1,6 @@
-use crate::config::{AdapterCatalog, AdapterConfig, FilesystemCapability, OutputParserConfig, OutputPick};
+use crate::config::{
+    AdapterCatalog, AdapterConfig, FilesystemCapability, OutputParserConfig, OutputPick,
+};
 use std::collections::BTreeMap;
 
 fn v(items: &[&str]) -> Vec<String> {

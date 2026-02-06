@@ -75,11 +75,11 @@
   "roles": {
     "oracle": {
       "model": "codex/gpt-5.2@xhigh",
-      "timeout_secs": 600
+      "timeout_secs": 900
     },
     "builder": {
       "model": "codex/gpt-5.3-codex@xhigh",
-      "timeout_secs": 600
+      "timeout_secs": 900
     },
     "researcher": {
       "model": "gemini/gemini-3-pro-preview",

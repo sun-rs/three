@@ -11,7 +11,8 @@ use crate::{
 use rmcp::{
     handler::server::{router::tool::ToolRouter, wrapper::Parameters},
     model::*,
-    schemars, tool, tool_handler, tool_router, ErrorData as McpError, Peer, RoleServer, ServerHandler,
+    schemars, tool, tool_handler, tool_router, ErrorData as McpError, Peer, RoleServer,
+    ServerHandler,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -70,10 +71,15 @@ pub struct VibeArgs {
     /// Optional client identifier (e.g., claude|codex|opencode)
     #[serde(default)]
     pub client: Option<String>,
+
+    /// Optional main conversation/session identifier from the host CLI.
+    #[serde(default)]
+    pub conversation_id: Option<String>,
 }
 
 /// Input parameters for the roundtable tool.
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct RoundtableArgs {
     /// Topic/question for the roundtable
     #[serde(rename = "TOPIC")]
@@ -85,10 +91,6 @@ pub struct RoundtableArgs {
     /// Participant list
     pub participants: Vec<RoundtableParticipant>,
 
-    /// Optional moderator (synthesis role). If omitted, returns contributions only.
-    #[serde(default)]
-    pub moderator: Option<RoundtableModerator>,
-
     /// Default timeout in seconds for each participant (default: 600)
     #[serde(default)]
     pub timeout_secs: Option<u64>,
@@ -96,6 +98,10 @@ pub struct RoundtableArgs {
     /// Optional client identifier (e.g., claude|codex|opencode)
     #[serde(default)]
     pub client: Option<String>,
+
+    /// Optional main conversation/session identifier from the host CLI.
+    #[serde(default)]
+    pub conversation_id: Option<String>,
 }
 
 /// Input parameters for the batch tool.
@@ -114,6 +120,10 @@ pub struct BatchArgs {
     /// Optional client identifier (e.g., claude|codex|opencode)
     #[serde(default)]
     pub client: Option<String>,
+
+    /// Optional main conversation/session identifier from the host CLI.
+    #[serde(default)]
+    pub conversation_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, schemars::JsonSchema)]
@@ -198,20 +208,6 @@ pub struct RoundtableParticipant {
     pub force_new_session: bool,
 }
 
-#[derive(Debug, Clone, Deserialize, schemars::JsonSchema)]
-pub struct RoundtableModerator {
-    #[serde(default)]
-    pub role: Option<String>,
-    #[serde(default)]
-    pub backend: Option<String>,
-    #[serde(default)]
-    pub model: Option<String>,
-    #[serde(default)]
-    pub reasoning_effort: Option<String>,
-    #[serde(default)]
-    pub force_new_session: bool,
-}
-
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum OutputContract {
@@ -287,6 +283,16 @@ fn format_model_ref(backend_id: &str, model_id: &str, variant: Option<&str>) -> 
     }
 }
 
+fn compute_default_session_key(
+    repo_root: &PathBuf,
+    role: &str,
+    role_id: &str,
+    client_hint: Option<&str>,
+    conversation_id: Option<&str>,
+) -> String {
+    SessionStore::compute_key_with_scope(repo_root, role, role_id, client_hint, conversation_id)
+}
+
 fn resolve_client_hint(explicit: Option<&str>) -> Result<Option<String>, McpError> {
     let raw = explicit
         .map(|s| s.to_string())
@@ -310,13 +316,60 @@ fn resolve_client_hint(explicit: Option<&str>) -> Result<Option<String>, McpErro
     Ok(Some(trimmed.to_ascii_lowercase()))
 }
 
+fn resolve_conversation_hint(explicit: Option<&str>) -> Result<Option<String>, McpError> {
+    let raw = explicit
+        .map(|s| s.to_string())
+        .or_else(|| std::env::var("THREE_CONVERSATION_ID").ok());
+    let Some(raw) = raw else {
+        return Ok(None);
+    };
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+    if trimmed.len() > 256 {
+        return Err(McpError::invalid_params(
+            "conversation_id must be 256 chars or fewer".to_string(),
+            None,
+        ));
+    }
+    if !trimmed
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == ':' || c == '.')
+    {
+        return Err(McpError::invalid_params(
+            "conversation_id must use [A-Za-z0-9._:-]".to_string(),
+            None,
+        ));
+    }
+    Ok(Some(trimmed.to_string()))
+}
+
+async fn notify_fanout_progress(
+    peer: Option<&Peer<RoleServer>>,
+    logger: &str,
+    level: LoggingLevel,
+    message: String,
+) {
+    let Some(peer) = peer else {
+        return;
+    };
+
+    let _ = peer
+        .notify_logging_message(LoggingMessageNotificationParam {
+            level,
+            logger: Some(logger.to_string()),
+            data: serde_json::Value::String(message),
+        })
+        .await;
+}
+
 #[derive(Debug, Serialize)]
 struct RoundtableOutput {
     success: bool,
     topic: String,
     cd: String,
     contributions: Vec<RoundtableContribution>,
-    synthesis: Option<String>,
     error: Option<String>,
 }
 
@@ -376,35 +429,43 @@ impl VibeServer {
     /// Route a prompt to a configured backend (codex|gemini) with session reuse.
     ///
     /// Best practice: pass `cd` as your repo root and provide `role`.
-    #[tool(name = "three", description = "Route a prompt to configured backends with session reuse")]
+    #[tool(
+        name = "three",
+        description = "Route a prompt to configured backends with session reuse"
+    )]
     async fn vibe(
         &self,
         peer: Peer<RoleServer>,
         Parameters(args): Parameters<VibeArgs>,
     ) -> Result<CallToolResult, McpError> {
         let out = self.run_vibe_internal(Some(peer), args).await?;
-        let json = serde_json::to_string(&out)
-            .map_err(|e| McpError::internal_error(format!("failed to serialize output: {e}"), None))?;
+        let json = serde_json::to_string(&out).map_err(|e| {
+            McpError::internal_error(format!("failed to serialize output: {e}"), None)
+        })?;
         Ok(CallToolResult::success(vec![Content::text(json)]))
     }
 
     /// Run multiple tasks in parallel and return partial results.
-    #[tool(name = "batch", description = "Run multiple tasks in parallel with session reuse")]
+    #[tool(
+        name = "batch",
+        description = "Run multiple tasks in parallel with session reuse"
+    )]
     async fn batch(
         &self,
         peer: Peer<RoleServer>,
         Parameters(args): Parameters<BatchArgs>,
     ) -> Result<CallToolResult, McpError> {
         let out = self.run_batch_internal(Some(peer), args).await?;
-        let json = serde_json::to_string(&out)
-            .map_err(|e| McpError::internal_error(format!("failed to serialize output: {e}"), None))?;
+        let json = serde_json::to_string(&out).map_err(|e| {
+            McpError::internal_error(format!("failed to serialize output: {e}"), None)
+        })?;
         Ok(CallToolResult::success(vec![Content::text(json)]))
     }
 
-    /// Run a multi-role discussion on a topic and optionally synthesize.
+    /// Run a multi-role discussion on a topic and return participant contributions.
     #[tool(
         name = "roundtable",
-        description = "Fan-out a topic to multiple roles and optionally synthesize a conclusion"
+        description = "Fan-out a topic to multiple roles (conductor synthesizes externally)"
     )]
     async fn roundtable(
         &self,
@@ -444,18 +505,22 @@ impl VibeServer {
         })?;
         if !repo_root.is_dir() {
             return Err(McpError::invalid_params(
-                format!("working directory is not a directory: {}", repo_root.display()),
+                format!(
+                    "working directory is not a directory: {}",
+                    repo_root.display()
+                ),
                 None,
             ));
         }
 
         let client_hint = resolve_client_hint(args.client.as_deref())?;
+        let conversation_hint = resolve_conversation_hint(args.conversation_id.as_deref())?;
         let RoundtableArgs {
             topic,
             participants,
-            moderator,
             timeout_secs,
             client: _client,
+            conversation_id: _conversation_id,
             cd: _,
         } = args;
 
@@ -480,10 +545,22 @@ impl VibeServer {
                 .unwrap_or_else(|| name.clone());
 
             let prompt = format!(
-                "TOPIC:\n{}\n\nYou are a roundtable participant named '{}' (role: {}).\n\nReply with:\n1) Position (1-2 sentences)\n2) Arguments (bullets)\n3) Risks/edge cases (bullets)\n4) Recommendation (actionable)\n\nConstraints:\n- Do not claim to have run commands unless you actually did.\n- Prefer referencing repo paths when relevant.\n",
-                topic_trimmed,
-                name,
-                role
+                "TOPIC:
+{}
+
+You are a roundtable participant named '{}' (role: {}).
+
+Reply with:
+1) Position (1-2 sentences)
+2) Arguments (bullets)
+3) Risks/edge cases (bullets)
+4) Recommendation (actionable)
+
+Constraints:
+- Do not claim to have run commands unless you actually did.
+- Prefer referencing repo paths when relevant.
+",
+                topic_trimmed, name, role
             );
 
             let args = VibeArgs {
@@ -500,6 +577,7 @@ impl VibeServer {
                 contract: None,
                 validate_patch: false,
                 client: client_hint.clone(),
+                conversation_id: conversation_hint.clone(),
             };
             tasks.push(FanoutTaskSpec {
                 name: Some(name),
@@ -509,7 +587,14 @@ impl VibeServer {
         }
 
         let results = self
-            .run_fanout_internal(Some(peer.clone()), &repo_root, tasks, client_hint.clone())
+            .run_fanout_internal(
+                Some(peer.clone()),
+                &repo_root,
+                tasks,
+                client_hint.clone(),
+                conversation_hint.clone(),
+                "roundtable",
+            )
             .await?;
 
         let mut contributions = Vec::new();
@@ -547,78 +632,29 @@ impl VibeServer {
             }
         }
 
-        let mut synthesis: Option<String> = None;
-        if let Some(m) = moderator {
-            let role = m
-                .role
-                .clone()
-                .filter(|s| !s.trim().is_empty())
-                .unwrap_or_else(|| "moderator".to_string());
-
-            let mut transcript = String::new();
-            for c in &contributions {
-                transcript.push_str("---\n");
-                transcript.push_str(&format!("participant: {}\nrole: {}\nbackend: {}\n\n{}\n\n", c.name, c.role, c.backend, c.agent_messages));
-            }
-
-            let prompt = format!(
-                "You are the moderator. Synthesize the roundtable into a single decision.\n\nTOPIC:\n{}\n\nCONTRIBUTIONS:\n{}\n\nOutput:\n- Conclusion (1 paragraph)\n- Tradeoffs (bullets)\n- Next actions (bullets)\n- Open questions (bullets, optional)\n",
-                topic_trimmed,
-                transcript
-            );
-
-            let out = self
-                .run_vibe_internal(Some(peer.clone()), VibeArgs {
-                    prompt,
-                    cd: repo_root.to_string_lossy().to_string(),
-                    role: Some(role),
-                    backend: m.backend,
-                    model: m.model,
-                    reasoning_effort: m.reasoning_effort,
-                    session_id: None,
-                    force_new_session: m.force_new_session,
-                    session_key: None,
-                    timeout_secs: timeout_override,
-                    contract: None,
-                    validate_patch: false,
-                    client: client_hint.clone(),
-                })
-                .await;
-
-            match out {
-                Ok(out) => {
-                    synthesis = Some(out.agent_messages);
-                    if out.error.is_some() {
-                        any_error = true;
-                    }
-                }
-                Err(e) => {
-                    any_error = true;
-                    synthesis = Some(format!("moderator error: {e}"));
-                }
-            }
-        }
-
         let out = RoundtableOutput {
             success: !any_error,
             topic,
             cd: repo_root.to_string_lossy().to_string(),
             contributions,
-            synthesis,
             error: if any_error {
-                Some("one or more participants/moderator returned an error".to_string())
+                Some("one or more participants returned an error".to_string())
             } else {
                 None
             },
         };
 
-        let json = serde_json::to_string(&out)
-            .map_err(|e| McpError::internal_error(format!("failed to serialize output: {e}"), None))?;
+        let json = serde_json::to_string(&out).map_err(|e| {
+            McpError::internal_error(format!("failed to serialize output: {e}"), None)
+        })?;
         Ok(CallToolResult::success(vec![Content::text(json)]))
     }
 
     /// Show effective config (roles -> models) without calling any LLM.
-    #[tool(name = "info", description = "Show effective three role/model mapping for this directory")]
+    #[tool(
+        name = "info",
+        description = "Show effective three role/model mapping for this directory"
+    )]
     async fn info(
         &self,
         Parameters(args): Parameters<InfoArgs>,
@@ -643,7 +679,10 @@ impl VibeServer {
         })?;
         if !repo_root.is_dir() {
             return Err(McpError::invalid_params(
-                format!("working directory is not a directory: {}", repo_root.display()),
+                format!(
+                    "working directory is not a directory: {}",
+                    repo_root.display()
+                ),
                 None,
             ));
         }
@@ -684,10 +723,7 @@ impl VibeServer {
                 .as_ref()
                 .map(|p| p.description.clone())
                 .unwrap_or_default();
-            let prompt_raw = persona
-                .as_ref()
-                .map(|p| p.prompt.trim())
-                .unwrap_or("");
+            let prompt_raw = persona.as_ref().map(|p| p.prompt.trim()).unwrap_or("");
             let (prompt_present, prompt_len, prompt_preview) = if prompt_raw.is_empty() {
                 (false, None, None)
             } else {
@@ -772,8 +808,9 @@ impl VibeServer {
             },
         };
 
-        let json = serde_json::to_string(&out)
-            .map_err(|e| McpError::internal_error(format!("failed to serialize output: {e}"), None))?;
+        let json = serde_json::to_string(&out).map_err(|e| {
+            McpError::internal_error(format!("failed to serialize output: {e}"), None)
+        })?;
         Ok(CallToolResult::success(vec![Content::text(json)]))
     }
 }
@@ -810,22 +847,24 @@ impl VibeServer {
         })?;
         if !repo_root.is_dir() {
             return Err(McpError::invalid_params(
-                format!("working directory is not a directory: {}", repo_root.display()),
+                format!(
+                    "working directory is not a directory: {}",
+                    repo_root.display()
+                ),
                 None,
             ));
         }
 
         let role = args.role.clone().unwrap_or_else(|| "default".to_string());
+        let client_hint = resolve_client_hint(args.client.as_deref())?;
+        let conversation_hint = resolve_conversation_hint(args.conversation_id.as_deref())?;
 
         let cfg_for_repo = self
             .config_loader
-            .load_for_repo_with_client(&repo_root, resolve_client_hint(args.client.as_deref())?.as_deref())
+            .load_for_repo_with_client(&repo_root, client_hint.as_deref())
             .map_err(|e| McpError::internal_error(format!("failed to load config: {e}"), None))?;
         let cfg = cfg_for_repo.config.ok_or_else(|| {
-            McpError::invalid_params(
-                "no config found (create ~/.config/three/config.json)",
-                None,
-            )
+            McpError::invalid_params("no config found (create ~/.config/three/config.json)", None)
         })?;
 
         let rp = cfg
@@ -838,30 +877,35 @@ impl VibeServer {
             .as_ref()
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| SessionStore::compute_key(&repo_root, &role, &rp.role_id));
+            .unwrap_or_else(|| {
+                compute_default_session_key(
+                    &repo_root,
+                    &role,
+                    &rp.role_id,
+                    client_hint.as_deref(),
+                    conversation_hint.as_deref(),
+                )
+            });
         let _key_lock = self
             .store
             .acquire_key_lock(&session_key)
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
 
-        let timeout_secs = args
-            .timeout_secs
-            .or(rp.profile.timeout_secs)
-            .unwrap_or(600);
+        let timeout_secs = args.timeout_secs.or(rp.profile.timeout_secs).unwrap_or(600);
 
         let explicit_session_id = args
             .session_id
             .as_ref()
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty());
-        let mut warning_extra: Option<String> = None;
+        let mut warning_messages: Vec<String> = Vec::new();
 
         let prev_rec = self.store.get(&session_key).ok().flatten();
         let supports_session = rp.profile.adapter.output_parser.supports_session();
         let mut resumed = false;
         let mut session_id_to_use = if args.force_new_session {
             if let Some(sid) = explicit_session_id.as_ref() {
-                warning_extra = Some(format!(
+                warning_messages.push(format!(
                     "force_new_session=true ignored provided session_id '{sid}'"
                 ));
             }
@@ -870,6 +914,16 @@ impl VibeServer {
             explicit_session_id.clone()
         };
         let mut resume_without_session = false;
+        if !args.force_new_session
+            && args.session_key.is_none()
+            && explicit_session_id.is_none()
+            && conversation_hint.is_none()
+        {
+            warning_messages.push(
+                "conversation_id not provided; auto-resume may cross top-level chats in the same repo/role".to_string(),
+            );
+        }
+
         if session_id_to_use.is_none() && !args.force_new_session {
             if supports_session {
                 if let Some(rec) = prev_rec.as_ref() {
@@ -898,10 +952,7 @@ impl VibeServer {
 
         let is_resuming = !args.force_new_session && (explicit_session_id.is_some() || resumed);
         if !is_resuming && !prompt_text.contains("[THREE_PERSONA") {
-            let ptext = persona
-                .as_ref()
-                .map(|p| p.prompt.trim())
-                .unwrap_or("");
+            let ptext = persona.as_ref().map(|p| p.prompt.trim()).unwrap_or("");
             if !ptext.is_empty() {
                 let bid = rp.role_id.as_str();
                 prompt_text = format!(
@@ -939,16 +990,10 @@ impl VibeServer {
             let (backend_id, model_id, variant) = parse_role_model_ref(&fallback.model)
                 .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
             let fallback_backend = Backend::parse(&backend_id).ok_or_else(|| {
-                McpError::invalid_params(
-                    format!("unsupported backend key: {backend_id}"),
-                    None,
-                )
+                McpError::invalid_params(format!("unsupported backend key: {backend_id}"), None)
             })?;
             let fallback_cfg = cfg.backend.get(&backend_id).ok_or_else(|| {
-                McpError::invalid_params(
-                    format!("missing backend config: {backend_id}"),
-                    None,
-                )
+                McpError::invalid_params(format!("missing backend config: {backend_id}"), None)
             })?;
             let adapter = fallback_cfg.adapter.clone().ok_or_else(|| {
                 McpError::invalid_params(
@@ -1024,7 +1069,11 @@ impl VibeServer {
                 } else {
                     None
                 },
-                resume: if same_backend { resume_without_session } else { false },
+                resume: if same_backend {
+                    resume_without_session
+                } else {
+                    false
+                },
                 model: candidate.model.clone(),
                 options: candidate.options,
                 capabilities: rp.profile.capabilities.clone(),
@@ -1049,7 +1098,10 @@ impl VibeServer {
                     if is_model_error_message(&msg) && idx + 1 < total_candidates {
                         continue;
                     }
-                    return Err(McpError::internal_error(format!("backend failed: {msg}"), None));
+                    return Err(McpError::internal_error(
+                        format!("backend failed: {msg}"),
+                        None,
+                    ));
                 }
             }
         }
@@ -1069,8 +1121,15 @@ impl VibeServer {
         let fallback_warning = used_fallback
             .as_ref()
             .map(|m| format!("model fallback used: {m}"));
+        let warning_extra = if warning_messages.is_empty() {
+            None
+        } else {
+            Some(warning_messages.join("\n"))
+        };
         let warnings = match (r.warnings, warning_extra, fallback_warning) {
-            (Some(base), Some(extra), Some(fallback)) => Some(format!("{base}\n{extra}\n{fallback}")),
+            (Some(base), Some(extra), Some(fallback)) => {
+                Some(format!("{base}\n{extra}\n{fallback}"))
+            }
             (Some(base), Some(extra), None) => Some(format!("{base}\n{extra}")),
             (Some(base), None, Some(fallback)) => Some(format!("{base}\n{fallback}")),
             (Some(base), None, None) => Some(base),
@@ -1093,7 +1152,9 @@ impl VibeServer {
                     updated_at_unix_secs: now_unix_secs(),
                 },
             )
-            .map_err(|e| McpError::internal_error(format!("failed to persist session: {e}"), None))?;
+            .map_err(|e| {
+                McpError::internal_error(format!("failed to persist session: {e}"), None)
+            })?;
 
         let mut contract_errors: Vec<String> = Vec::new();
         let mut patch_format: Option<String> = None;
@@ -1123,14 +1184,14 @@ impl VibeServer {
                     (contract::PatchFormat::UnifiedDiff, None) => {
                         patch_apply_check_ok = Some(false);
                         patch_apply_check_output = Some(
-                            "validate_patch=true but failed to extract unified diff patch".to_string(),
+                            "validate_patch=true but failed to extract unified diff patch"
+                                .to_string(),
                         );
                     }
                     _ => {
                         patch_apply_check_ok = Some(false);
-                        patch_apply_check_output = Some(
-                            "validate_patch=true but patch is not a unified diff".to_string(),
-                        );
+                        patch_apply_check_output =
+                            Some("validate_patch=true but patch is not a unified diff".to_string());
                     }
                 }
             }
@@ -1206,13 +1267,17 @@ impl VibeServer {
         })?;
         if !repo_root.is_dir() {
             return Err(McpError::invalid_params(
-                format!("working directory is not a directory: {}", repo_root.display()),
+                format!(
+                    "working directory is not a directory: {}",
+                    repo_root.display()
+                ),
                 None,
             ));
         }
 
         let repo_cd = repo_root.to_string_lossy().to_string();
         let client_hint = resolve_client_hint(args.client.as_deref())?;
+        let conversation_hint = resolve_conversation_hint(args.conversation_id.as_deref())?;
         let mut tasks: Vec<FanoutTaskSpec> = Vec::with_capacity(args.tasks.len());
         for task in args.tasks {
             let role_opt = task
@@ -1238,6 +1303,7 @@ impl VibeServer {
                 contract: task.contract,
                 validate_patch: task.validate_patch,
                 client: client_hint.clone(),
+                conversation_id: conversation_hint.clone(),
             };
             tasks.push(FanoutTaskSpec {
                 name: task.name,
@@ -1247,7 +1313,14 @@ impl VibeServer {
         }
 
         let results = self
-            .run_fanout_internal(peer, &repo_root, tasks, client_hint.clone())
+            .run_fanout_internal(
+                peer,
+                &repo_root,
+                tasks,
+                client_hint.clone(),
+                conversation_hint.clone(),
+                "batch",
+            )
             .await?;
 
         let mut any_error = false;
@@ -1299,16 +1372,15 @@ impl VibeServer {
         repo_root: &PathBuf,
         tasks: Vec<FanoutTaskSpec>,
         client: Option<String>,
+        conversation_id: Option<String>,
+        operation: &'static str,
     ) -> Result<Vec<FanoutResult>, McpError> {
         let cfg_for_repo = self
             .config_loader
             .load_for_repo_with_client(repo_root, client.as_deref())
             .map_err(|e| McpError::internal_error(format!("failed to load config: {e}"), None))?;
         let cfg = cfg_for_repo.config.ok_or_else(|| {
-            McpError::invalid_params(
-                "no config found (create ~/.config/three/config.json)",
-                None,
-            )
+            McpError::invalid_params("no config found (create ~/.config/three/config.json)", None)
         })?;
 
         let mut kimi_resume_roles: Vec<String> = Vec::new();
@@ -1338,6 +1410,12 @@ impl VibeServer {
                 continue;
             }
 
+            let effective_client = task.args.client.as_deref().or(client.as_deref());
+            let effective_conversation = task
+                .args
+                .conversation_id
+                .as_deref()
+                .or(conversation_id.as_deref());
             let session_key = task
                 .args
                 .session_key
@@ -1345,7 +1423,13 @@ impl VibeServer {
                 .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty())
                 .unwrap_or_else(|| {
-                    SessionStore::compute_key(repo_root, role_id, &resolved.role_id)
+                    compute_default_session_key(
+                        repo_root,
+                        role_id,
+                        &resolved.role_id,
+                        effective_client,
+                        effective_conversation,
+                    )
                 });
             let prev_rec = self.store.get(&session_key).ok().flatten();
             if let Some(rec) = prev_rec {
@@ -1365,8 +1449,23 @@ impl VibeServer {
             ));
         }
 
+        let logger = format!("three.{operation}");
+        let total_tasks = tasks.len();
         let mut joinset: tokio::task::JoinSet<FanoutResult> = tokio::task::JoinSet::new();
-        for task in tasks {
+        for (idx, task) in tasks.into_iter().enumerate() {
+            let task_label = task.name.clone().unwrap_or_else(|| task.role.clone());
+            notify_fanout_progress(
+                peer.as_ref(),
+                &logger,
+                LoggingLevel::Info,
+                format!(
+                    "[{operation}] started {task_label} ({}/{})",
+                    idx + 1,
+                    total_tasks
+                ),
+            )
+            .await;
+
             let server = VibeServer::new(self.config_loader.clone(), self.store.clone());
             let peer = peer.clone();
             let FanoutTaskSpec { name, role, args } = task;
@@ -1380,21 +1479,65 @@ impl VibeServer {
             });
         }
 
-        let mut results: Vec<FanoutResult> = Vec::new();
+        let mut results: Vec<FanoutResult> = Vec::with_capacity(total_tasks);
+        let mut completed = 0usize;
         while let Some(joined) = joinset.join_next().await {
+            completed += 1;
             match joined {
-                Ok(res) => results.push(res),
-                Err(e) => results.push(FanoutResult {
-                    name: None,
-                    role: "".to_string(),
-                    result: Err(McpError::internal_error(format!("join error: {e}"), None)),
-                }),
+                Ok(res) => {
+                    let task_label = res
+                        .name
+                        .clone()
+                        .filter(|s| !s.trim().is_empty())
+                        .unwrap_or_else(|| {
+                            if res.role.trim().is_empty() {
+                                "<unknown>".to_string()
+                            } else {
+                                res.role.clone()
+                            }
+                        });
+                    let status = match &res.result {
+                        Ok(out) if out.error.is_none() => "ok",
+                        _ => "error",
+                    };
+                    notify_fanout_progress(
+                        peer.as_ref(),
+                        &logger,
+                        if status == "ok" {
+                            LoggingLevel::Info
+                        } else {
+                            LoggingLevel::Warning
+                        },
+                        format!(
+                            "[{operation}] completed {task_label} ({}/{}) status={status}",
+                            completed, total_tasks
+                        ),
+                    )
+                    .await;
+                    results.push(res);
+                }
+                Err(e) => {
+                    notify_fanout_progress(
+                        peer.as_ref(),
+                        &logger,
+                        LoggingLevel::Error,
+                        format!(
+                            "[{operation}] join error ({}/{}) {}",
+                            completed, total_tasks, e
+                        ),
+                    )
+                    .await;
+                    results.push(FanoutResult {
+                        name: None,
+                        role: "".to_string(),
+                        result: Err(McpError::internal_error(format!("join error: {e}"), None)),
+                    });
+                }
             }
         }
 
         Ok(results)
     }
-
 }
 
 fn is_model_error_message(msg: &str) -> bool {
@@ -1417,9 +1560,6 @@ impl ServerHandler for VibeServer {
         }
     }
 }
-
-
-
 
 #[cfg(test)]
 mod tests {
@@ -1752,7 +1892,6 @@ mod tests {
         ConfigLoader::new(Some(cfg_path.to_path_buf()))
     }
 
-
     #[tokio::test]
     async fn client_config_prefers_client_specific_file() {
         let td = tempfile::tempdir().unwrap();
@@ -1790,6 +1929,8 @@ mod tests {
                     contract: None,
                     validate_patch: false,
                     client: Some("claude".to_string()),
+
+                    conversation_id: None,
                 },
             )
             .await
@@ -1843,6 +1984,8 @@ mod tests {
             contract: None,
             validate_patch: false,
             client: None,
+
+            conversation_id: None,
         };
         let out1 = server.run_vibe_internal(None, args1).await.unwrap();
         assert_eq!(out1.success, true);
@@ -1863,6 +2006,8 @@ mod tests {
             contract: None,
             validate_patch: false,
             client: None,
+
+            conversation_id: None,
         };
         let out2 = server.run_vibe_internal(None, args2).await.unwrap();
         assert_eq!(out2.success, true);
@@ -1912,6 +2057,8 @@ mod tests {
                         contract: None,
                         validate_patch: false,
                         client: None,
+
+                        conversation_id: None,
                     },
                 )
                 .await
@@ -1941,6 +2088,8 @@ mod tests {
                         contract: None,
                         validate_patch: false,
                         client: None,
+
+                        conversation_id: None,
                     },
                 )
                 .await
@@ -1991,6 +2140,8 @@ mod tests {
                     contract: None,
                     validate_patch: false,
                     client: None,
+
+                    conversation_id: None,
                 },
             )
             .await
@@ -2040,6 +2191,8 @@ mod tests {
                     contract: None,
                     validate_patch: false,
                     client: None,
+
+                    conversation_id: None,
                 },
             )
             .await
@@ -2090,6 +2243,8 @@ mod tests {
                     contract: None,
                     validate_patch: false,
                     client: None,
+
+                    conversation_id: None,
                 },
             )
             .await
@@ -2117,7 +2272,12 @@ mod tests {
 
         let fake = td.path().join("fake-codex.sh");
         let log = td.path().join("codex-model.log");
-        write_fake_cli_with_custom_model_error_once(&fake, &log, "gpt-5.2-codex", "custom_not_found");
+        write_fake_cli_with_custom_model_error_once(
+            &fake,
+            &log,
+            "gpt-5.2-codex",
+            "custom_not_found",
+        );
         let _env = crate::test_utils::scoped_codex_bin(fake.to_string_lossy().as_ref());
 
         let out = server
@@ -2137,6 +2297,8 @@ mod tests {
                     contract: None,
                     validate_patch: false,
                     client: None,
+
+                    conversation_id: None,
                 },
             )
             .await
@@ -2226,21 +2388,26 @@ mod tests {
         let _env = crate::test_utils::scoped_codex_bin(fake.to_string_lossy().as_ref());
 
         let out = server
-            .run_vibe_internal(None, VibeArgs {
-                prompt: "ping".to_string(),
-                cd: repo.to_string_lossy().to_string(),
-                role: Some("oracle".to_string()),
-                backend: None,
-                model: None,
-                reasoning_effort: None,
-                session_id: None,
-                force_new_session: true,
-                session_key: None,
-                timeout_secs: Some(5),
-                contract: None,
-                validate_patch: false,
-                client: None,
-            })
+            .run_vibe_internal(
+                None,
+                VibeArgs {
+                    prompt: "ping".to_string(),
+                    cd: repo.to_string_lossy().to_string(),
+                    role: Some("oracle".to_string()),
+                    backend: None,
+                    model: None,
+                    reasoning_effort: None,
+                    session_id: None,
+                    force_new_session: true,
+                    session_key: None,
+                    timeout_secs: Some(5),
+                    contract: None,
+                    validate_patch: false,
+                    client: None,
+
+                    conversation_id: None,
+                },
+            )
             .await
             .unwrap();
 
@@ -2282,26 +2449,35 @@ mod tests {
         let _env = crate::test_utils::scoped_codex_bin(fake.to_string_lossy().as_ref());
 
         let out = server
-            .run_vibe_internal(None, VibeArgs {
-                prompt: "do".to_string(),
-                cd: repo.to_string_lossy().to_string(),
-                role: Some("oracle".to_string()),
-                backend: None,
-                model: None,
-                reasoning_effort: None,
-                session_id: None,
-                force_new_session: true,
-                session_key: None,
-                timeout_secs: Some(5),
-                contract: Some(OutputContract::PatchWithCitations),
-                validate_patch: false,
-                client: None,
-            })
+            .run_vibe_internal(
+                None,
+                VibeArgs {
+                    prompt: "do".to_string(),
+                    cd: repo.to_string_lossy().to_string(),
+                    role: Some("oracle".to_string()),
+                    backend: None,
+                    model: None,
+                    reasoning_effort: None,
+                    session_id: None,
+                    force_new_session: true,
+                    session_key: None,
+                    timeout_secs: Some(5),
+                    contract: Some(OutputContract::PatchWithCitations),
+                    validate_patch: false,
+                    client: None,
+
+                    conversation_id: None,
+                },
+            )
             .await
             .unwrap();
 
         assert_eq!(out.success, false);
-        assert!(out.error.as_deref().unwrap_or("").contains("output contract violation"));
+        assert!(out
+            .error
+            .as_deref()
+            .unwrap_or("")
+            .contains("output contract violation"));
     }
 
     #[tokio::test]
@@ -2373,21 +2549,26 @@ mod tests {
         let _env = crate::test_utils::scoped_codex_bin(fake.to_string_lossy().as_ref());
 
         let out = server
-            .run_vibe_internal(None, VibeArgs {
-                prompt: "do".to_string(),
-                cd: repo.to_string_lossy().to_string(),
-                role: Some("oracle".to_string()),
-                backend: None,
-                model: None,
-                reasoning_effort: None,
-                session_id: None,
-                force_new_session: true,
-                session_key: None,
-                timeout_secs: Some(5),
-                contract: Some(OutputContract::PatchWithCitations),
-                validate_patch: true,
-                client: None,
-            })
+            .run_vibe_internal(
+                None,
+                VibeArgs {
+                    prompt: "do".to_string(),
+                    cd: repo.to_string_lossy().to_string(),
+                    role: Some("oracle".to_string()),
+                    backend: None,
+                    model: None,
+                    reasoning_effort: None,
+                    session_id: None,
+                    force_new_session: true,
+                    session_key: None,
+                    timeout_secs: Some(5),
+                    contract: Some(OutputContract::PatchWithCitations),
+                    validate_patch: true,
+                    client: None,
+
+                    conversation_id: None,
+                },
+            )
             .await
             .unwrap();
 
@@ -2467,6 +2648,8 @@ echo '{"type":"item.completed","item":{"type":"agent_message","text":"ok"}}'
                             name: Some("two".to_string()),
                         },
                     ],
+
+                    conversation_id: None,
                 },
             )
             .await
@@ -2479,11 +2662,7 @@ echo '{"type":"item.completed","item":{"type":"agent_message","text":"ok"}}'
             .iter()
             .any(|r| r.output.as_ref().map(|o| o.success).unwrap_or(false)));
         assert!(out.results.iter().any(|r| {
-            r.output
-                .as_ref()
-                .map(|o| !o.success)
-                .unwrap_or(false)
-                || r.error.is_some()
+            r.output.as_ref().map(|o| !o.success).unwrap_or(false) || r.error.is_some()
         }));
     }
 
@@ -2568,6 +2747,8 @@ echo '{"type":"item.completed","item":{"type":"agent_message","text":"ok"}}'
                             name: None,
                         },
                     ],
+
+                    conversation_id: None,
                 },
             )
             .await
@@ -2576,4 +2757,157 @@ echo '{"type":"item.completed","item":{"type":"agent_message","text":"ok"}}'
         assert!(err.to_string().contains("kimi"));
     }
 
+    #[test]
+    fn roundtable_args_rejects_moderator_field() {
+        let raw = r#"{
+  "TOPIC": "test",
+  "cd": ".",
+  "participants": [
+    {"name": "oracle", "role": "oracle"}
+  ],
+  "moderator": {"role": "oracle"}
+}"#;
+
+        let err = serde_json::from_str::<RoundtableArgs>(raw).unwrap_err();
+        assert!(
+            err.to_string().contains("unknown field") && err.to_string().contains("moderator"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn session_reuse_isolated_by_client() {
+        let td = tempfile::tempdir().unwrap();
+        let repo = td.path().join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+
+        let store_path = td.path().join("sessions.json");
+        let store = SessionStore::new(store_path);
+        let cfg_path = td.path().join("config.json");
+        write_codex_test_config(&cfg_path);
+        let server = VibeServer::new(codex_loader(&cfg_path), store.clone());
+
+        let fake = td.path().join("fake-codex.sh");
+        let log = td.path().join("codex.log");
+        write_fake_cli(&fake, &log, "sess-new", "pong");
+        let _env = crate::test_utils::scoped_codex_bin(fake.to_string_lossy().as_ref());
+
+        let key = SessionStore::compute_key_with_scope(
+            &repo.canonicalize().unwrap(),
+            "oracle",
+            "oracle",
+            Some("claude"),
+            None,
+        );
+        store
+            .put(
+                &key,
+                SessionRecord {
+                    repo_root: repo.to_string_lossy().to_string(),
+                    role: "oracle".to_string(),
+                    role_id: "oracle".to_string(),
+                    backend: Backend::Codex,
+                    backend_session_id: "sess-prev".to_string(),
+                    sampling_history: Vec::new(),
+                    updated_at_unix_secs: now_unix_secs(),
+                },
+            )
+            .unwrap();
+
+        let out = server
+            .run_vibe_internal(
+                None,
+                VibeArgs {
+                    prompt: "ping".to_string(),
+                    cd: repo.to_string_lossy().to_string(),
+                    role: Some("oracle".to_string()),
+                    backend: None,
+                    model: None,
+                    reasoning_effort: None,
+                    session_id: None,
+                    force_new_session: false,
+                    session_key: None,
+                    timeout_secs: Some(5),
+                    contract: None,
+                    validate_patch: false,
+                    client: Some("codex".to_string()),
+                    conversation_id: None,
+                },
+            )
+            .await
+            .unwrap();
+
+        assert!(
+            !out.resumed,
+            "session should not resume across different client hints"
+        );
+    }
+
+    #[tokio::test]
+    async fn session_reuse_isolated_by_conversation_id() {
+        let td = tempfile::tempdir().unwrap();
+        let repo = td.path().join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+
+        let store_path = td.path().join("sessions.json");
+        let store = SessionStore::new(store_path);
+        let cfg_path = td.path().join("config.json");
+        write_codex_test_config(&cfg_path);
+        let server = VibeServer::new(codex_loader(&cfg_path), store.clone());
+
+        let fake = td.path().join("fake-codex.sh");
+        let log = td.path().join("codex.log");
+        write_fake_cli(&fake, &log, "sess-new", "pong");
+        let _env = crate::test_utils::scoped_codex_bin(fake.to_string_lossy().as_ref());
+
+        let key = SessionStore::compute_key_with_scope(
+            &repo.canonicalize().unwrap(),
+            "oracle",
+            "oracle",
+            Some("claude"),
+            Some("conv-a"),
+        );
+        store
+            .put(
+                &key,
+                SessionRecord {
+                    repo_root: repo.to_string_lossy().to_string(),
+                    role: "oracle".to_string(),
+                    role_id: "oracle".to_string(),
+                    backend: Backend::Codex,
+                    backend_session_id: "sess-prev".to_string(),
+                    sampling_history: Vec::new(),
+                    updated_at_unix_secs: now_unix_secs(),
+                },
+            )
+            .unwrap();
+
+        let out = server
+            .run_vibe_internal(
+                None,
+                VibeArgs {
+                    prompt: "ping".to_string(),
+                    cd: repo.to_string_lossy().to_string(),
+                    role: Some("oracle".to_string()),
+                    backend: None,
+                    model: None,
+                    reasoning_effort: None,
+                    session_id: None,
+                    force_new_session: false,
+                    session_key: None,
+                    timeout_secs: Some(5),
+                    contract: None,
+                    validate_patch: false,
+                    client: Some("claude".to_string()),
+                    conversation_id: Some("conv-b".to_string()),
+                },
+            )
+            .await
+            .unwrap();
+
+        assert!(
+            !out.resumed,
+            "session should not resume across different conversation_id values"
+        );
+    }
 }

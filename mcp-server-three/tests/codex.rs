@@ -1,13 +1,13 @@
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use regex::Regex;
 use mcp_server_three::{
     backend,
     config::ConfigLoader,
     server::{VibeArgs, VibeServer},
     session_store::SessionStore,
 };
+use regex::Regex;
 
 fn resolve_test_command(backend_id: &str) -> String {
     match backend_id {
@@ -43,14 +43,8 @@ fn write_codex_config(path: &Path) {
     std::fs::write(path, cfg).unwrap();
 }
 
-fn render_args_for_role(
-    cfg_path: &Path,
-    repo: &Path,
-    role: &str,
-    prompt: &str,
-) -> Vec<String> {
-    let loader =
-        ConfigLoader::new(Some(cfg_path.to_path_buf()));
+fn render_args_for_role(cfg_path: &Path, repo: &Path, role: &str, prompt: &str) -> Vec<String> {
+    let loader = ConfigLoader::new(Some(cfg_path.to_path_buf()));
     let cfg = loader.load_for_repo(repo).unwrap().unwrap();
     let rp = cfg.resolve_profile(Some(role)).unwrap();
     backend::render_args(&backend::GenericOptions {
@@ -84,10 +78,7 @@ async fn run_role(
     prompt: String,
 ) -> mcp_server_three::server::VibeOutput {
     let store = SessionStore::new(repo.join("sessions.json"));
-    let server = VibeServer::new(
-        ConfigLoader::new(Some(cfg_path.to_path_buf())),
-        store,
-    );
+    let server = VibeServer::new(ConfigLoader::new(Some(cfg_path.to_path_buf())), store);
 
     server
         .run_vibe_internal(
@@ -106,6 +97,8 @@ async fn run_role(
                 contract: None,
                 validate_patch: false,
                 client: None,
+
+                conversation_id: None,
             },
         )
         .await
@@ -147,7 +140,11 @@ async fn cfgtest_real_codex_smoke() {
 
     assert!(out.success, "error={:?}", out.error);
     let re = Regex::new(r"DATE:\d{4}-\d{2}-\d{2}").unwrap();
-    assert!(re.is_match(&out.agent_messages), "msg={}", out.agent_messages);
+    assert!(
+        re.is_match(&out.agent_messages),
+        "msg={}",
+        out.agent_messages
+    );
 }
 
 #[tokio::test]
@@ -173,7 +170,11 @@ async fn cfgtest_real_codex_readonly_create_file() {
     assert!(out.success, "error={:?}", out.error);
     let reported_true = out.agent_messages.contains("RESULT:true");
     let reported_false = out.agent_messages.contains("RESULT:false");
-    assert!(reported_true || reported_false, "msg={}", out.agent_messages);
+    assert!(
+        reported_true || reported_false,
+        "msg={}",
+        out.agent_messages
+    );
     let exists = target.exists();
     assert_eq!(exists, reported_true, "msg={}", out.agent_messages);
     assert!(!exists, "read-only should not create files");
@@ -200,7 +201,11 @@ async fn cfgtest_real_codex_readwrite_create_file() {
     let out = run_role(&cfg_path, &repo, "writer", prompt).await;
 
     assert!(out.success, "error={:?}", out.error);
-    assert!(out.agent_messages.contains("RESULT:true"), "msg={}", out.agent_messages);
+    assert!(
+        out.agent_messages.contains("RESULT:true"),
+        "msg={}",
+        out.agent_messages
+    );
     assert!(target.exists(), "expected file to be created");
     let content = std::fs::read_to_string(&target).unwrap_or_default();
     assert!(content.contains("hello"), "content={}", content);

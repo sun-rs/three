@@ -45,8 +45,10 @@ Diagnostics (optional):
 
 Notes:
 - The Conductor role is the current CLI (you). It is not configured as a role.
-- Some commands require specific roles (`oracle`, `builder`, `reviewer`, `researcher`, `critic`, `sprinter`).
+- Callable roles are runtime-driven by config: use `mcp__three__info` and only call roles with `enabled=true`.
+- Some specialist commands target conventional role names (`oracle`, `builder`, `reviewer`, `researcher`, `critic`, `sprinter`).
 - If a required role is missing, the command will instruct you to add it or choose a different role.
 - `/three:info` is only for troubleshooting; most commands call `mcp__three__info` internally.
 - Personas are built into the MCP server; `roles.<id>.personas` is optional and overrides the built-in persona.
 - Parallel fan-out uses the MCP tool `mcp__three__batch` (not a slash command).
+- If your host can provide a stable main-chat id, pass `conversation_id` to scope child-session reuse.

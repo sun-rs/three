@@ -6,8 +6,12 @@
 > **Multi-agent, multi-LLM orchestration system for complex software tasks**
 
 Three is a multi-agent, multi-LLM vibe-coding CLI system (MCP server + plugins) for Codex, Gemini, and Claude.
-It orchestrates role-based agents with session-aware reuse, safe capability controls, parallel fan-out, and roundtable consensus.
-Use `/three:conductor` to dispatch complex work across multiple LLMs, or `/three:roundtable` to run multi-round discussions for tough decisions.
+
+It helps you run serious engineering workflows with less prompt overhead:
+- Use `/three:conductor` to break down complex work and dispatch it across multiple specialist roles.
+- Use `/three:roundtable` to run 1-3 feedback rounds for hard tradeoffs, then synthesize a decision in the main CLI.
+- Use `mcp__three__batch` to parallelize independent tasks and still get partial results if some tasks fail.
+- Keep child-session reuse scoped by `client` + `conversation_id` (when provided), reducing cross-chat contamination.
 
 ## Why Three?
 
@@ -32,7 +36,7 @@ Split complex tasks across multiple LLMs, cross-check results, and converge fast
 Run multi-round discussions where different models debate and synthesize decisions for tough architectural choices.
 
 ### ⚡ Parallel Fan-Out
-Execute independent tasks concurrently with partial failure handling.
+Execute independent tasks concurrently with partial failure handling and real-time role completion logs.
 
 ## Quick Commands
 
