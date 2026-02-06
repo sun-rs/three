@@ -30,17 +30,23 @@ claude plugin install three@three-local
 
 ## Commands
 
+Primary:
+- `/three:conductor <task>`
+- `/three:roundtable <topic>`
 - `/three:oracle <task>`
 - `/three:builder <task>`
-- `/three:conductor <task>`
 - `/three:researcher <task>`
 - `/three:reviewer <task>`
 - `/three:critic <task>`
 - `/three:sprinter <task>`
-- `/three:roundtable <topic>`
+
+Diagnostics (optional):
 - `/three:info`
 
 Notes:
 - The Conductor role is the current CLI (you). It is not configured as a role.
 - Some commands require specific roles (`oracle`, `builder`, `reviewer`, `researcher`, `critic`, `sprinter`).
 - If a required role is missing, the command will instruct you to add it or choose a different role.
+- `/three:info` is only for troubleshooting; most commands call `mcp__three__info` internally.
+- Personas are built into the MCP server; `roles.<id>.personas` is optional and overrides the built-in persona.
+- Parallel fan-out uses the MCP tool `mcp__three__batch` (not a slash command).

@@ -10,9 +10,16 @@
 - `mcp-server-three/` — MCP Server（Rust）。负责将请求路由到配置的后端，并进行会话复用。
 - `plugins/claude-code/three/` — Claude Code 插件（斜杠命令 + 路由技能）。
 
+## 文档索引
+
+- `docs/cli-output-modes.md` — 输出/流式解析规则（权威入口）
+- `docs/cli-*.md` — 各 CLI 的参数映射、会话续接和特性说明
+- `docs/config-schema.md` — 配置字段、默认值与解析规则
+
 ## CLI 适配矩阵
 
 说明：`examples/config.json` 中包含 `kimi_reader` / `opencode_reader` 两个用于测试权限校验的反例。
+Personas 内置于 MCP Server；`roles.<id>.personas` 为可选覆盖项。
 
 所有后端都由内置的 adapter catalog 驱动（MiniJinja `args_template` + `output_parser`）。  
 模型写法为 `backend/model@variant`（variant 可选）。variant 会覆盖 `options`，
@@ -56,6 +63,13 @@ claude mcp add three -s user --transport stdio -- \
 claude plugin marketplace add "./plugins/claude-code"
 claude plugin install three@three-local
 ```
+
+4) 使用插件命令：
+- `/three:conductor <task>` 进行任务编排
+- `/three:roundtable <topic>` 进行多角色讨论
+- `/three:oracle|builder|researcher|reviewer|critic|sprinter <task>` 直接调用专业角色
+
+并行扇出：使用 `mcp__three__batch` 在一次 MCP 调用中并行执行多个独立任务（即使部分失败也会返回结果）。
 
 ## 说明
 

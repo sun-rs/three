@@ -48,6 +48,7 @@ If the user message contains:
 - If multi-file / risky / tradeoffs, consult `oracle`.
 - If you need implementation depth, consult `builder`.
 - If you need multiple perspectives, run a roundtable.
+- If you need parallel, independent work items, use `mcp__three__batch`.
 - If you need quick options, consult `sprinter`.
 - If you need evidence or docs, consult `researcher`.
 - If you need contrarian risk checks, consult `critic`.
@@ -55,7 +56,13 @@ If the user message contains:
 ## Output Discipline
 
 - For implementation/review: require `PATCH + CITATIONS`. Use the MCP contract gate (`contract=patch_with_citations`, `validate_patch=true`).
+- For `batch`, report partial failures and continue synthesizing results.
 - Do not claim tests pass unless you ran them.
+
+## Kimi Parallel Resume
+
+- Kimi has no session id. Parallel *resuming* across multiple Kimi roles in the same repo is rejected.
+- Use a single Kimi role or set `force_new_session=true` for all Kimi tasks in `batch`/`roundtable`.
 
 ## Claude Code UI Note
 

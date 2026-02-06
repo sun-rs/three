@@ -86,6 +86,71 @@ pub struct RoundtableArgs {
     pub timeout_secs: Option<u64>,
 }
 
+/// Input parameters for the batch tool.
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct BatchArgs {
+    /// Working directory (repo root recommended)
+    pub cd: String,
+
+    /// Task list (fan-out)
+    pub tasks: Vec<BatchTask>,
+
+    /// Default timeout in seconds for each task (default: 600)
+    #[serde(default)]
+    pub timeout_secs: Option<u64>,
+}
+
+#[derive(Debug, Clone, Deserialize, schemars::JsonSchema)]
+pub struct BatchTask {
+    /// Task instruction
+    #[serde(rename = "PROMPT")]
+    pub prompt: String,
+
+    /// Optional task label
+    #[serde(default)]
+    pub name: Option<String>,
+
+    /// Role name (used in session key + optional config mapping)
+    #[serde(default)]
+    pub role: Option<String>,
+
+    /// Backend override when not using config (codex|gemini)
+    #[serde(default)]
+    pub backend: Option<String>,
+
+    /// Model override when not using config
+    #[serde(default)]
+    pub model: Option<String>,
+
+    /// Reasoning effort override for codex when not using config (low|medium|high|xhigh)
+    #[serde(default)]
+    pub reasoning_effort: Option<String>,
+
+    /// Resume an existing backend session id (manual override)
+    #[serde(rename = "SESSION_ID", default)]
+    pub session_id: Option<String>,
+
+    /// Ignore stored session and force a new one
+    #[serde(default)]
+    pub force_new_session: bool,
+
+    /// Explicit session key override (advanced). If provided, this key is used for persistence/locking.
+    #[serde(default)]
+    pub session_key: Option<String>,
+
+    /// Backend timeout in seconds (default: 600)
+    #[serde(default)]
+    pub timeout_secs: Option<u64>,
+
+    /// Output contract enforcement (optional)
+    #[serde(default)]
+    pub contract: Option<OutputContract>,
+
+    /// If true, run `git apply --check` on extracted unified diff patches.
+    #[serde(default)]
+    pub validate_patch: bool,
+}
+
 /// Input parameters for the info tool.
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct InfoArgs {
@@ -153,6 +218,36 @@ pub struct VibeOutput {
     pub error: Option<String>,
 }
 
+#[derive(Debug, Serialize)]
+struct BatchOutput {
+    success: bool,
+    cd: String,
+    results: Vec<BatchResult>,
+    error: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct BatchResult {
+    name: Option<String>,
+    role: String,
+    backend: String,
+    output: Option<VibeOutput>,
+    error: Option<String>,
+}
+
+#[derive(Debug)]
+struct FanoutTaskSpec {
+    name: Option<String>,
+    role: String,
+    args: VibeArgs,
+}
+
+#[derive(Debug)]
+struct FanoutResult {
+    name: Option<String>,
+    role: String,
+    result: std::result::Result<VibeOutput, McpError>,
+}
 
 #[derive(Debug, Serialize)]
 struct RoundtableOutput {
@@ -170,6 +265,7 @@ struct InfoOutput {
     cd: String,
     config_sources: Vec<String>,
     roles: Vec<InfoRole>,
+    warnings: Vec<String>,
     error: Option<String>,
 }
 
@@ -226,6 +322,19 @@ impl VibeServer {
         Parameters(args): Parameters<VibeArgs>,
     ) -> Result<CallToolResult, McpError> {
         let out = self.run_vibe_internal(Some(peer), args).await?;
+        let json = serde_json::to_string(&out)
+            .map_err(|e| McpError::internal_error(format!("failed to serialize output: {e}"), None))?;
+        Ok(CallToolResult::success(vec![Content::text(json)]))
+    }
+
+    /// Run multiple tasks in parallel and return partial results.
+    #[tool(name = "batch", description = "Run multiple tasks in parallel with session reuse")]
+    async fn batch(
+        &self,
+        peer: Peer<RoleServer>,
+        Parameters(args): Parameters<BatchArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let out = self.run_batch_internal(Some(peer), args).await?;
         let json = serde_json::to_string(&out)
             .map_err(|e| McpError::internal_error(format!("failed to serialize output: {e}"), None))?;
         Ok(CallToolResult::success(vec![Content::text(json)]))
@@ -291,16 +400,7 @@ impl VibeServer {
         let repo_cd = repo_root.to_string_lossy().to_string();
         let timeout_override = timeout_secs;
 
-        let mut contributions = Vec::new();
-        let mut any_error = false;
-
-        // Run participants concurrently; collect partial results even if some fail.
-        let mut joinset: tokio::task::JoinSet<(
-            String,
-            String,
-            std::result::Result<VibeOutput, McpError>,
-        )> = tokio::task::JoinSet::new();
-
+        let mut tasks: Vec<FanoutTaskSpec> = Vec::new();
         for p in participants {
             if p.name.trim().is_empty() {
                 return Err(McpError::invalid_params(
@@ -309,54 +409,55 @@ impl VibeServer {
                 ));
             }
 
-            let name = p.name.clone();
+            let name = p.name.trim().to_string();
             let role = p
                 .role
                 .clone()
                 .filter(|s| !s.trim().is_empty())
-                .unwrap_or_else(|| name.trim().to_string());
+                .unwrap_or_else(|| name.clone());
 
             let prompt = format!(
                 "TOPIC:\n{}\n\nYou are a roundtable participant named '{}' (role: {}).\n\nReply with:\n1) Position (1-2 sentences)\n2) Arguments (bullets)\n3) Risks/edge cases (bullets)\n4) Recommendation (actionable)\n\nConstraints:\n- Do not claim to have run commands unless you actually did.\n- Prefer referencing repo paths when relevant.\n",
                 topic_trimmed,
-                name.trim(),
+                name,
                 role
             );
 
-            let server = VibeServer::new(self.config_loader.clone(), self.store.clone());
-            let cd = repo_cd.clone();
-            let role_for_out = role.clone();
-            let peer = peer.clone();
-
-            joinset.spawn(async move {
-                let out = server
-                    .run_vibe_internal(Some(peer), VibeArgs {
-                        prompt,
-                        cd,
-                        role: Some(role_for_out.clone()),
-                        backend: p.backend,
-                        model: p.model,
-                        reasoning_effort: p.reasoning_effort,
-                        session_id: None,
-                        force_new_session: p.force_new_session,
-                        session_key: None,
-                        timeout_secs: timeout_override,
-                        contract: None,
-                        validate_patch: false,
-                    })
-                    .await;
-                (name, role_for_out, out)
+            let args = VibeArgs {
+                prompt,
+                cd: repo_cd.clone(),
+                role: Some(role.clone()),
+                backend: p.backend,
+                model: p.model,
+                reasoning_effort: p.reasoning_effort,
+                session_id: None,
+                force_new_session: p.force_new_session,
+                session_key: None,
+                timeout_secs: timeout_override,
+                contract: None,
+                validate_patch: false,
+            };
+            tasks.push(FanoutTaskSpec {
+                name: Some(name),
+                role,
+                args,
             });
         }
 
-        while let Some(joined) = joinset.join_next().await {
-            match joined {
-                Ok((name, _role, Ok(out))) => {
+        let results = self
+            .run_fanout_internal(Some(peer.clone()), &repo_root, tasks)
+            .await?;
+
+        let mut contributions = Vec::new();
+        let mut any_error = false;
+        for res in results {
+            match res.result {
+                Ok(out) => {
                     if out.error.is_some() {
                         any_error = true;
                     }
                     contributions.push(RoundtableContribution {
-                        name,
+                        name: res.name.unwrap_or_default(),
                         role: out.role.clone(),
                         backend: out.backend.clone(),
                         role_id: out.role_id.clone(),
@@ -366,30 +467,17 @@ impl VibeServer {
                         error: out.error.clone(),
                     });
                 }
-                Ok((name, role, Err(e))) => {
+                Err(e) => {
                     any_error = true;
                     contributions.push(RoundtableContribution {
-                        name,
-                        role,
+                        name: res.name.unwrap_or_default(),
+                        role: res.role,
                         backend: "error".to_string(),
                         role_id: "".to_string(),
                         resumed: false,
                         backend_session_id: "".to_string(),
                         agent_messages: "".to_string(),
                         error: Some(e.to_string()),
-                    });
-                }
-                Err(e) => {
-                    any_error = true;
-                    contributions.push(RoundtableContribution {
-                        name: "".to_string(),
-                        role: "".to_string(),
-                        backend: "error".to_string(),
-                        role_id: "".to_string(),
-                        resumed: false,
-                        backend_session_id: "".to_string(),
-                        agent_messages: "".to_string(),
-                        error: Some(format!("join error: {e}")),
                     });
                 }
             }
@@ -519,6 +607,7 @@ impl VibeServer {
                 cd: repo_root.to_string_lossy().to_string(),
                 config_sources: sources,
                 roles: Vec::new(),
+                warnings: Vec::new(),
                 error: Some("no config found (create ~/.config/three/config.json)".to_string()),
             };
             let json = serde_json::to_string(&out).map_err(|e| {
@@ -595,11 +684,28 @@ impl VibeServer {
             });
         }
 
+        let warnings = {
+            let kimi_roles: Vec<String> = roles
+                .iter()
+                .filter(|r| r.enabled && r.backend == "kimi")
+                .map(|r| r.role.clone())
+                .collect();
+            if kimi_roles.len() > 1 {
+                vec![format!(
+                    "multiple enabled roles use backend 'kimi' ({}). Parallel resume (batch/roundtable with force_new_session=false) will be rejected.",
+                    kimi_roles.join(", ")
+                )]
+            } else {
+                Vec::new()
+            }
+        };
+
         let out = InfoOutput {
             success: errors.is_empty(),
             cd: repo_root.to_string_lossy().to_string(),
             config_sources: sources,
             roles,
+            warnings,
             error: if errors.is_empty() {
                 None
             } else {
@@ -868,6 +974,221 @@ impl VibeServer {
         Ok(out)
     }
 
+    async fn run_batch_internal(
+        &self,
+        peer: Option<Peer<RoleServer>>,
+        args: BatchArgs,
+    ) -> Result<BatchOutput, McpError> {
+        if args.cd.trim().is_empty() {
+            return Err(McpError::invalid_params(
+                "cd is required and must be a non-empty string",
+                None,
+            ));
+        }
+        if args.tasks.is_empty() {
+            return Err(McpError::invalid_params(
+                "tasks must be a non-empty array",
+                None,
+            ));
+        }
+
+        let cd = PathBuf::from(args.cd.as_str());
+        let repo_root = cd.canonicalize().map_err(|e| {
+            McpError::invalid_params(
+                format!(
+                    "working directory does not exist or is not accessible: {} ({})",
+                    cd.display(),
+                    e
+                ),
+                None,
+            )
+        })?;
+        if !repo_root.is_dir() {
+            return Err(McpError::invalid_params(
+                format!("working directory is not a directory: {}", repo_root.display()),
+                None,
+            ));
+        }
+
+        let repo_cd = repo_root.to_string_lossy().to_string();
+        let mut tasks: Vec<FanoutTaskSpec> = Vec::with_capacity(args.tasks.len());
+        for task in args.tasks {
+            let role_opt = task
+                .role
+                .as_ref()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty());
+            let role_label = role_opt
+                .clone()
+                .unwrap_or_else(|| "<missing role>".to_string());
+            let timeout_secs = task.timeout_secs.or(args.timeout_secs);
+            let args = VibeArgs {
+                prompt: task.prompt,
+                cd: repo_cd.clone(),
+                role: role_opt,
+                backend: task.backend,
+                model: task.model,
+                reasoning_effort: task.reasoning_effort,
+                session_id: task.session_id,
+                force_new_session: task.force_new_session,
+                session_key: task.session_key,
+                timeout_secs,
+                contract: task.contract,
+                validate_patch: task.validate_patch,
+            };
+            tasks.push(FanoutTaskSpec {
+                name: task.name,
+                role: role_label,
+                args,
+            });
+        }
+
+        let results = self.run_fanout_internal(peer, &repo_root, tasks).await?;
+
+        let mut any_error = false;
+        let mut outputs: Vec<BatchResult> = Vec::new();
+        for res in results {
+            match res.result {
+                Ok(out) => {
+                    if out.error.is_some() {
+                        any_error = true;
+                    }
+                    let err = out.error.clone();
+                    let backend = out.backend.clone();
+                    outputs.push(BatchResult {
+                        name: res.name,
+                        role: res.role,
+                        backend,
+                        output: Some(out),
+                        error: err,
+                    });
+                }
+                Err(e) => {
+                    any_error = true;
+                    outputs.push(BatchResult {
+                        name: res.name,
+                        role: res.role,
+                        backend: "error".to_string(),
+                        output: None,
+                        error: Some(e.to_string()),
+                    });
+                }
+            }
+        }
+
+        Ok(BatchOutput {
+            success: !any_error,
+            cd: repo_root.to_string_lossy().to_string(),
+            results: outputs,
+            error: if any_error {
+                Some("one or more tasks returned an error".to_string())
+            } else {
+                None
+            },
+        })
+    }
+
+    async fn run_fanout_internal(
+        &self,
+        peer: Option<Peer<RoleServer>>,
+        repo_root: &PathBuf,
+        tasks: Vec<FanoutTaskSpec>,
+    ) -> Result<Vec<FanoutResult>, McpError> {
+        let cfg_for_repo = self
+            .config_loader
+            .load_for_repo(repo_root)
+            .map_err(|e| McpError::internal_error(format!("failed to load config: {e}"), None))?;
+        let cfg = cfg_for_repo.ok_or_else(|| {
+            McpError::invalid_params(
+                "no config found (create ~/.config/three/config.json)",
+                None,
+            )
+        })?;
+
+        let mut kimi_resume_roles: Vec<String> = Vec::new();
+        for task in &tasks {
+            if task.args.force_new_session {
+                continue;
+            }
+            let Some(role_id) = task.args.role.as_deref() else {
+                continue;
+            };
+            let resolved = match cfg.resolve_profile(Some(role_id)) {
+                Ok(r) => r,
+                Err(_) => continue,
+            };
+            if resolved.profile.backend_id != "kimi" {
+                continue;
+            }
+
+            let explicit_session_id = task
+                .args
+                .session_id
+                .as_ref()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty());
+            if explicit_session_id.is_some() {
+                kimi_resume_roles.push(role_id.to_string());
+                continue;
+            }
+
+            let session_key = task
+                .args
+                .session_key
+                .as_ref()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| {
+                    SessionStore::compute_key(repo_root, role_id, &resolved.role_id)
+                });
+            let prev_rec = self.store.get(&session_key).ok().flatten();
+            if let Some(rec) = prev_rec {
+                if rec.backend == resolved.profile.backend {
+                    kimi_resume_roles.push(role_id.to_string());
+                }
+            }
+        }
+
+        if kimi_resume_roles.len() > 1 {
+            return Err(McpError::invalid_params(
+                format!(
+                    "multiple kimi roles requested with force_new_session=false: {}. Kimi cannot resume multiple sessions in the same working directory.",
+                    kimi_resume_roles.join(", ")
+                ),
+                None,
+            ));
+        }
+
+        let mut joinset: tokio::task::JoinSet<FanoutResult> = tokio::task::JoinSet::new();
+        for task in tasks {
+            let server = VibeServer::new(self.config_loader.clone(), self.store.clone());
+            let peer = peer.clone();
+            let FanoutTaskSpec { name, role, args } = task;
+            joinset.spawn(async move {
+                let out = server.run_vibe_internal(peer, args).await;
+                FanoutResult {
+                    name,
+                    role,
+                    result: out,
+                }
+            });
+        }
+
+        let mut results: Vec<FanoutResult> = Vec::new();
+        while let Some(joined) = joinset.join_next().await {
+            match joined {
+                Ok(res) => results.push(res),
+                Err(e) => results.push(FanoutResult {
+                    name: None,
+                    role: "".to_string(),
+                    result: Err(McpError::internal_error(format!("join error: {e}"), None)),
+                }),
+            }
+        }
+
+        Ok(results)
+    }
+
 }
 
 #[tool_handler]
@@ -891,6 +1212,7 @@ impl ServerHandler for VibeServer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::Backend;
     use std::io::Write;
     use std::path::Path;
     use std::process::Command;
@@ -950,6 +1272,52 @@ mod tests {
       "model": "codex/gpt-5.2-codex@xhigh",
       "personas": { "description": "d", "prompt": "p" },
       "capabilities": { "filesystem": "read-only", "shell": "deny", "network": "deny", "tools": ["read"] }
+    }
+  }
+}"#;
+        std::fs::write(path, cfg).unwrap();
+    }
+
+    fn write_batch_codex_config(path: &Path) {
+        let cfg = r#"{
+  "backend": {
+    "codex": {
+      "models": {
+        "gpt-5.2-codex": { "options": {} }
+      }
+    }
+  },
+  "roles": {
+    "oracle": {
+      "model": "codex/gpt-5.2-codex",
+      "personas": { "description": "d", "prompt": "p" },
+      "capabilities": { "filesystem": "read-only", "shell": "deny", "network": "deny", "tools": ["read"] }
+    },
+    "builder": {
+      "model": "codex/gpt-5.2-codex",
+      "personas": { "description": "d", "prompt": "p" },
+      "capabilities": { "filesystem": "read-only", "shell": "deny", "network": "deny", "tools": ["read"] }
+    }
+  }
+}"#;
+        std::fs::write(path, cfg).unwrap();
+    }
+
+    fn write_batch_kimi_config(path: &Path) {
+        let cfg = r#"{
+  "backend": {
+    "kimi": { "models": {} }
+  },
+  "roles": {
+    "kimi_a": {
+      "model": "kimi/default",
+      "personas": { "description": "d", "prompt": "p" },
+      "capabilities": { "filesystem": "read-write", "shell": "deny", "network": "deny", "tools": ["read"] }
+    },
+    "kimi_b": {
+      "model": "kimi/default",
+      "personas": { "description": "d", "prompt": "p" },
+      "capabilities": { "filesystem": "read-write", "shell": "deny", "network": "deny", "tools": ["read"] }
     }
   }
 }"#;
@@ -1424,6 +1792,185 @@ mod tests {
 
         assert_eq!(out.success, true, "error={:?}", out.error);
         assert_eq!(out.patch_apply_check_ok, Some(true));
+    }
+
+    #[tokio::test]
+    async fn batch_returns_partial_results() {
+        let td = tempfile::tempdir().unwrap();
+        let repo = td.path().join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+
+        let store_path = td.path().join("sessions.json");
+        let store = SessionStore::new(store_path);
+
+        let cfg_path = td.path().join("config.json");
+        write_batch_codex_config(&cfg_path);
+        let server = VibeServer::new(codex_loader(&cfg_path), store);
+
+        let fake = td.path().join("fake-codex.sh");
+        let script = r#"#!/bin/sh
+set -e
+
+if echo "$@" | grep -q 'FAIL'; then
+  echo "boom" 1>&2
+  exit 1
+fi
+
+echo '{"type":"thread.started","thread_id":"sess-1"}'
+echo '{"type":"item.completed","item":{"type":"agent_message","text":"ok"}}'
+"#;
+        std::fs::write(&fake, script).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = std::fs::metadata(&fake).unwrap().permissions();
+            perms.set_mode(0o755);
+            std::fs::set_permissions(&fake, perms).unwrap();
+        }
+        let _env = crate::test_utils::scoped_codex_bin(fake.to_string_lossy().as_ref());
+
+        let out = server
+            .run_batch_internal(
+                None,
+                BatchArgs {
+                    cd: repo.to_string_lossy().to_string(),
+                    timeout_secs: Some(5),
+                    tasks: vec![
+                        BatchTask {
+                            prompt: "ok".to_string(),
+                            role: Some("oracle".to_string()),
+                            backend: None,
+                            model: None,
+                            reasoning_effort: None,
+                            session_id: None,
+                            force_new_session: false,
+                            session_key: None,
+                            timeout_secs: None,
+                            contract: None,
+                            validate_patch: false,
+                            name: Some("one".to_string()),
+                        },
+                        BatchTask {
+                            prompt: "FAIL".to_string(),
+                            role: Some("builder".to_string()),
+                            backend: None,
+                            model: None,
+                            reasoning_effort: None,
+                            session_id: None,
+                            force_new_session: false,
+                            session_key: None,
+                            timeout_secs: None,
+                            contract: None,
+                            validate_patch: false,
+                            name: Some("two".to_string()),
+                        },
+                    ],
+                },
+            )
+            .await
+            .unwrap();
+
+        assert!(!out.success);
+        assert_eq!(out.results.len(), 2);
+        assert!(out
+            .results
+            .iter()
+            .any(|r| r.output.as_ref().map(|o| o.success).unwrap_or(false)));
+        assert!(out.results.iter().any(|r| {
+            r.output
+                .as_ref()
+                .map(|o| !o.success)
+                .unwrap_or(false)
+                || r.error.is_some()
+        }));
+    }
+
+    #[tokio::test]
+    async fn batch_rejects_multiple_kimi_resume_tasks() {
+        let td = tempfile::tempdir().unwrap();
+        let repo = td.path().join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+
+        let store_path = td.path().join("sessions.json");
+        let store = SessionStore::new(store_path);
+
+        let cfg_path = td.path().join("config.json");
+        write_batch_kimi_config(&cfg_path);
+        let server = VibeServer::new(ConfigLoader::new(Some(cfg_path)), store.clone());
+
+        let key_a = SessionStore::compute_key(&repo.canonicalize().unwrap(), "kimi_a", "kimi_a");
+        let key_b = SessionStore::compute_key(&repo.canonicalize().unwrap(), "kimi_b", "kimi_b");
+        store
+            .put(
+                &key_a,
+                SessionRecord {
+                    repo_root: repo.to_string_lossy().to_string(),
+                    role: "kimi_a".to_string(),
+                    role_id: "kimi_a".to_string(),
+                    backend: Backend::Kimi,
+                    backend_session_id: "stateless".to_string(),
+                    sampling_history: Vec::new(),
+                    updated_at_unix_secs: now_unix_secs(),
+                },
+            )
+            .unwrap();
+        store
+            .put(
+                &key_b,
+                SessionRecord {
+                    repo_root: repo.to_string_lossy().to_string(),
+                    role: "kimi_b".to_string(),
+                    role_id: "kimi_b".to_string(),
+                    backend: Backend::Kimi,
+                    backend_session_id: "stateless".to_string(),
+                    sampling_history: Vec::new(),
+                    updated_at_unix_secs: now_unix_secs(),
+                },
+            )
+            .unwrap();
+
+        let err = server
+            .run_batch_internal(
+                None,
+                BatchArgs {
+                    cd: repo.to_string_lossy().to_string(),
+                    timeout_secs: Some(5),
+                    tasks: vec![
+                        BatchTask {
+                            prompt: "a".to_string(),
+                            role: Some("kimi_a".to_string()),
+                            backend: None,
+                            model: None,
+                            reasoning_effort: None,
+                            session_id: None,
+                            force_new_session: false,
+                            session_key: None,
+                            timeout_secs: None,
+                            contract: None,
+                            validate_patch: false,
+                            name: None,
+                        },
+                        BatchTask {
+                            prompt: "b".to_string(),
+                            role: Some("kimi_b".to_string()),
+                            backend: None,
+                            model: None,
+                            reasoning_effort: None,
+                            session_id: None,
+                            force_new_session: false,
+                            session_key: None,
+                            timeout_secs: None,
+                            contract: None,
+                            validate_patch: false,
+                            name: None,
+                        },
+                    ],
+                },
+            )
+            .await
+            .unwrap_err();
+
+        assert!(err.to_string().contains("kimi"));
     }
 
 }

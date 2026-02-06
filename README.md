@@ -14,9 +14,10 @@ Multi-agent, multi-LLM vibe-coding CLI system (MCP server + plugins) for Codex, 
 
 - `docs/cli-output-modes.md` — authoritative output/stream parsing rules (start here)
 - `docs/cli-*.md` — per-CLI flag mapping, session resume, and CLI-specific notes
+- `docs/config-schema.md` — config fields, defaults, and role resolution rules
 
 Note: `examples/config.json` includes `kimi_reader` / `opencode_reader` counterexamples used to test capability validation.
-See `docs/config-schema.md` for MCP parameter behavior details.
+Personas are built into the MCP server; `roles.<id>.personas` is optional and overrides the built-in persona for that role.
 
 ## CLI adapter matrix
 
@@ -62,6 +63,13 @@ claude mcp add three -s user --transport stdio -- \
 claude plugin marketplace add "./plugins/claude-code"
 claude plugin install three@three-local
 ```
+
+4) Use the plugin commands:
+- `/three:conductor <task>` for orchestration
+- `/three:roundtable <topic>` for multi-agent consensus
+- `/three:oracle|builder|researcher|reviewer|critic|sprinter <task>` for specialist roles
+
+Parallel fan-out: use `mcp__three__batch` to run multiple independent tasks in one MCP call (partial failures are returned).
 
 ## Notes
 

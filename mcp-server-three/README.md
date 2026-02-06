@@ -1,15 +1,18 @@
 # Three: The Multi-LLM "Vibe Coding" Router
 
-**Three** is a unified orchestration system that turns Claude Code into a multi-soul coding cockpit. It allows you to delegate tasks to specialist agents (Oracle, Builder, Researcher) powered by different backend models (Codex, Gemini, Claude) while maintaining a single, coherent conversation context.
+**Three** is a unified orchestration system that turns Claude Code into a multi-role coding cockpit. It lets you delegate tasks to specialist agents (Oracle, Builder, Researcher, Reviewer, Critic, Sprinter) powered by different backend models (Codex, Gemini, Claude) while maintaining a single, coherent conversation context.
 
 ## 🌟 Why "Three"?
 
-Because effective engineering often requires three perspectives:
-1.  **The Architect** (Deep reasoning, trade-offs) -> *e.g. OpenAI o1 / Codex xhigh*
-2.  **The Builder** (Fast, correct implementation) -> *e.g. Codex high / Sonnet 3.5*
-3.  **The Critic/Reader** (Massive context, auditing) -> *e.g. Gemini 1.5 Pro*
+Because effective engineering often requires three core perspectives:
+1. **Oracle** (architecture, trade-offs, long-term risks)
+2. **Builder** (implementation feasibility, correct execution)
+3. **Researcher** (codebase and documentation grounding)
 
-Three unifies these into one CLI experience.
+Optional roles add extra coverage:
+- **Reviewer** (quality and correctness)
+- **Critic** (contrarian risk analysis)
+- **Sprinter** (fast idea generation)
 
 ---
 
@@ -17,7 +20,7 @@ Three unifies these into one CLI experience.
 
 ```mermaid
 graph TD
-    User[User (Claude Code CLI)] -->|/three:oracle| Plugin[Claude Code Plugin]
+    User[User (Claude Code CLI)] -->|/three:conductor| Plugin[Claude Code Plugin]
     Plugin -->|MCP Protocol| Three[Three MCP Server (Rust)]
     
     subgraph "Three Engine"
@@ -39,19 +42,20 @@ graph TD
 
 -   **Backend**: A CLI tool or API provider (e.g., `codex`, `gemini`).
 -   **Model (Brain)**: A specific configuration of a backend (e.g., `gpt-5.2` with `reasoning_effort=high`).
--   **Role**: A named profile with model, capabilities, and optional persona override (e.g., `oracle` = read-only + high reasoning).
--   **Session**: Persisted conversation state keyed by `(repo_root, role, model)`. Switching roles automatically switches context.
+-   **Role**: A named profile with model, capabilities, and optional persona override (e.g., `oracle`).
+-   **Persona**: Built-in role prompt injected by the MCP server only on *new* sessions. `roles.<id>.personas` can override.
+-   **Session**: Persisted conversation state keyed by `(repo_root, role, model)`. Switching roles switches context.
 
 ---
 
 ## ✨ Features
 
--   **Session Reuse**: Doesn't waste tokens re-sending context. Session IDs are stored locally and resumed automatically per role.
--   **Native File Access**: External CLIs run *inside* your repo directory. They read files directly from disk, saving massive amounts of input tokens compared to pasting code into chat.
--   **Role Policies**: Enforce capability boundaries.
-    -   *Example*: `builder` is `read-only`. `oracle` has `read-write`.
--   **Roundtable**: Run concurrent debates between multiple models (e.g., "Have Oracle and Reader debate this architecture").
--   **Configurable**: A single JSON file defines your entire agent fleet.
+- **Session Reuse**: Session IDs are stored locally and resumed automatically per role.
+- **Native File Access**: External CLIs run *inside* your repo directory and read files directly from disk.
+- **Role Capabilities**: Configure `filesystem`, `shell`, `network`, and `tools` per role (defaults are permissive). Backends like Kimi/OpenCode reject read-only.
+- **Built-in Personas**: The server injects persona prompts only when a new session is created.
+- **Roundtable**: Plugin workflow that runs multi-role discussions and converges on a result.
+- **Configurable**: A single JSON file defines models, roles, and overrides.
 
 ---
 
@@ -110,6 +114,7 @@ cp examples/config.json ~/.config/three/config.json
 
 Notes:
 - Personas are built into the MCP server. `roles.<id>.personas` is optional and overrides the built-in persona for that role.
+- `roles.<id>.enabled` defaults to `true` and disables a role when set to `false`.
 - See `docs/config-schema.md` for full details.
 
 ### 4. Install Claude Code Plugin
@@ -132,17 +137,26 @@ claude plugin install three@three-local
 
 | Command | Description |
 | :--- | :--- |
-| `/three:oracle <task>` | Ask the "Oracle" role (high reasoning, deeper thought). |
-| `/three:builder <task>` | Ask the "Builder" role (fast execution, implementation). |
-| `/three:reviewer <request>` | Ask the "Reviewer" role to critique code. |
-| `/three:roundtable <topic>`| Start a multi-model debate on a topic. |
-| `/three:info` | Show current roles, models, and capability configuration. |
+| `/three:conductor <task>` | Orchestrate work and decide when to use roundtable. |
+| `/three:roundtable <topic>` | Multi-role consensus workflow (1–3 rounds). |
+| `mcp__three__batch` | Parallel fan-out for independent tasks (partial failures returned). |
+| `/three:oracle <task>` | Architecture and trade-off analysis. |
+| `/three:builder <task>` | Implementation and debugging. |
+| `/three:researcher <task>` | Codebase/doc search and grounding. |
+| `/three:reviewer <request>` | Code review and risk finding. |
+| `/three:critic <request>` | Contrarian risk analysis. |
+| `/three:sprinter <task>` | Fast idea generation. |
+| `/three:info` | Troubleshooting view of roles/models/capabilities. |
 
 ### Advanced: Session Management
 
 You don't need to manage session IDs.
--   **Same role + Same repo = Same session.**
--   To reset a conversation (forget context), tell Claude: "Reset oracle session" or use `force_new_session` in tool calls.
+- **Same role + Same repo = Same session.**
+- To reset a conversation, use `force_new_session` in tool calls.
+
+Notes:
+- `batch` and `roundtable` return partial results even if some tasks fail.
+- Kimi has no session id. Parallel *resuming* across multiple Kimi roles in the same repo is rejected. Use `force_new_session=true` or a single Kimi role.
 
 ---
 
@@ -159,6 +173,7 @@ Define agents under `roles.<name>`.
 -   `capabilities`: `filesystem`, `shell`, `network`, `tools` (defaults are permissive).
 -   `timeout_secs`: Execution timeout (default 600s).
 -   `personas` (optional): override the built-in persona.
+-   `enabled` (optional): disable a role without deleting it.
 
 See `docs/config-schema.md` for the full schema and behavior.
 

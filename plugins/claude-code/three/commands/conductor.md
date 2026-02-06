@@ -36,6 +36,7 @@ You do **not** need to include persona text. The MCP server injects built-in per
 
 2. Choose a delegation pattern:
    - **Single expert**: call `mcp__three__three` with `role=<role>`
+   - **Parallel tasks**: call `mcp__three__batch` for independent work items
    - **Multi-role discussion**: use `/three:roundtable` **only when** the task is complex, ambiguous, or has major tradeoffs.
 
 3. If delegating to `builder` for code changes, enforce:
@@ -44,6 +45,7 @@ You do **not** need to include persona text. The MCP server injects built-in per
 
 4. Collect outputs and synthesize:
    - highlight consensus and disagreements
+   - if any batch tasks fail, report partial success and list failures
    - provide a clear next action
 
 ## Tips
@@ -52,3 +54,4 @@ You do **not** need to include persona text. The MCP server injects built-in per
 - Prefer `builder` for implementation plans and fixes.
 - Use `researcher` to ground decisions with evidence.
 - Use `reviewer` or `critic` to stress-test proposals.
+- If multiple Kimi roles are involved, use `force_new_session=true` or avoid parallel resume.
