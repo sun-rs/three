@@ -3,7 +3,14 @@
 [![English](https://img.shields.io/badge/lang-English-lightgrey)](README.md)
 [![中文](https://img.shields.io/badge/语言-中文-blue)](README.zh-CN.md)
 
-Multi-agent, multi-LLM vibe-coding CLI system (MCP server + plugins) for Codex, Gemini, and Claude. It orchestrates role-based agents with session-aware reuse, safe capabilities, parallel fan-out, and roundtable consensus, so you can split complex tasks, cross-check results, and converge faster with less prompt overhead and clearer, auditable outputs. Use `/three:conductor` to dispatch complex work across multiple LLMs, or `/three:roundtable` to run multi-round discussions for tough decisions and designs.
+Multi-agent, multi-LLM vibe-coding CLI system (MCP server + plugins) for Codex, Gemini, and Claude.
+
+What you get:
+- Role-based agents with session-aware reuse and safe capability mapping
+- Parallel fan-out and roundtable consensus to cross-check and converge faster
+- Lower prompt overhead with clear, auditable outputs
+
+Use `/three:conductor` to decompose and dispatch complex work across multiple LLMs. Use `/three:roundtable` to run multi-round discussions for tough decisions and designs.
 
 ## Repo layout
 

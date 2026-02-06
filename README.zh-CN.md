@@ -3,7 +3,14 @@
 [![English](https://img.shields.io/badge/lang-English-lightgrey)](README.md)
 [![中文](https://img.shields.io/badge/语言-中文-blue)](README.zh-CN.md)
 
-面向 Codex、Gemini、Claude 的多智能体、多大模型 Vibe‑Coding CLI 系统（MCP server + plugins）。可通过 `/three:conductor` 将复杂指令拆分并分派给多个 LLM，通过 `/three:roundtable` 发起多轮讨论以汇聚复杂方案与决策。
+面向 Codex、Gemini、Claude 的多智能体、多大模型 Vibe‑Coding CLI 系统（MCP server + plugins）。
+
+你可以获得：
+- 角色化代理 + 会话复用 + 安全能力映射
+- 并行分发与圆桌共识，交叉验证并更快收敛
+- 更低的提示词开销与可审计输出
+
+通过 `/three:conductor` 将复杂指令拆分并分派给多个 LLM，通过 `/three:roundtable` 发起多轮讨论以汇聚复杂方案与决策。
 
 ## 目录结构
 
