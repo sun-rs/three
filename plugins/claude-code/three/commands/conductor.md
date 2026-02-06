@@ -35,6 +35,7 @@ You do **not** need to include persona text. The MCP server injects built-in per
 - Default session behavior is **continue memory** (`force_new_session=false`).
 - Set `force_new_session=true` only when user explicitly asks reset/new clean session.
 - If user asks recall/continue/follow-up, keep `force_new_session=false`.
+- If you choose `/three:roundtable`, keep all rounds inside `/three:roundtable` workflow (Round 2/3 resume-only), not ad-hoc serial role calls.
 
 ## Steps
 

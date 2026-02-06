@@ -27,6 +27,8 @@ You are the Conductor. You host the session, pick participants, feed disagreemen
 - Do **not** emulate a round by looping serial `mcp__three__three` calls.
 - Do **not** use `mcp__three__roundtable` for this command; this command requires conductor-managed multi-round feedback.
 - Round 2 and Round 3 are **resume-only**: always `force_new_session=false` and always pass each participant's Round 1 `backend_session_id` as `session_id`.
+- Round 2/3 are still part of this `/three:roundtable` workflow. Do not switch to ad-hoc role commands.
+- If any participant is missing Round 1 `backend_session_id`, stop and report the issue instead of falling back to `force_new_session=true`.
 
 ## Steps (multi-round, up to 3)
 
