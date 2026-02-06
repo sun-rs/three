@@ -31,11 +31,16 @@ claude plugin install three@three-local
 ## Commands
 
 - `/three:oracle <task>`
-- `/three:sisyphus <task>`
-- `/three:review <task>`
+- `/three:builder <task>`
+- `/three:conductor <task>`
+- `/three:researcher <task>`
+- `/three:reviewer <task>`
+- `/three:critic <task>`
+- `/three:sprinter <task>`
 - `/three:roundtable <topic>`
 - `/three:info`
 
 Notes:
-- Some commands require specific roles (`oracle`, `sisyphus`, `reviewer`, `reader`, `moderator`).
+- The Conductor role is the current CLI (you). It is not configured as a role.
+- Some commands require specific roles (`oracle`, `builder`, `reviewer`, `researcher`, `critic`, `sprinter`).
 - If a required role is missing, the command will instruct you to add it or choose a different role.

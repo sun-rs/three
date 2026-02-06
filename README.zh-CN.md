@@ -12,7 +12,7 @@
 
 ## CLI 适配矩阵
 
-说明：`examples/config.json` 中包含一个用于测试权限校验的 reader 反例。
+说明：`examples/config.json` 中包含 `kimi_reader` / `opencode_reader` 两个用于测试权限校验的反例。
 
 所有后端都由内置的 adapter catalog 驱动（MiniJinja `args_template` + `output_parser`）。  
 模型写法为 `backend/model@variant`（variant 可选）。variant 会覆盖 `options`，

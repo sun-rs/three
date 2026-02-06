@@ -10,14 +10,18 @@ validation examples:
 - `kimi_reader`
 - `opencode_reader`
 
-These backends do **not** support `read-only` filesystem capability. The examples are
-provided so you can verify that MCP capability-range validation behaves as expected.
+These backends do **not** support `read-only` filesystem capability. In the example
+config they are already set to `filesystem = "read-only"` so you can verify that MCP
+capability-range validation behaves as expected. The server should reject those roles
+during profile resolution.
 
-If you want to trigger the validation error explicitly, set:
+To use the config without the validation error, either remove these roles or change:
 
 ```
-capabilities.filesystem = "read-only"
+capabilities.filesystem = "read-write"
 ```
 
-for those roles and reload the config. The server should reject those roles during
-profile resolution.
+## Persona override example
+
+The `oracle` role includes a `personas` block to demonstrate how config can override
+the built-in persona prompt. All other roles rely on the MCP server defaults.

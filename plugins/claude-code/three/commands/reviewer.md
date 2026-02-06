@@ -2,7 +2,7 @@
 description: Review a change and propose fixes (PATCH + CITATIONS) via three MCP
 ---
 
-# /three:review
+# /three:reviewer
 
 Use this to get an adversarial review that focuses on regressions and correctness.
 
@@ -10,10 +10,10 @@ Use this to get an adversarial review that focuses on regressions and correctnes
 
 1. Take the text after the command as the review prompt.
 
-2. Call the MCP tool `mcp__three__info` with:
+2. Call the MCP tool `mcp__three__info` with (skip if you already validated roles in this thread via `/three:conductor`):
    - `cd`: `.`
 
-   If the role `reviewer` is not listed, stop and explain:
+   If the role `reviewer` is missing or `enabled=false`, stop and explain:
    - the role is missing in `~/.config/three/config.json`
    - list available roles
    - suggest either adding a `reviewer` role or choosing a different role and re-running

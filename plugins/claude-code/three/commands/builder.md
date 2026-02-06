@@ -2,9 +2,9 @@
 description: Implementation pass (PATCH + CITATIONS) via three MCP
 ---
 
-# /three:sisyphus
+# /three:builder
 
-Use this for Sisyphus-style execution.
+Use this for implementation and bug fixes.
 
 Behavior:
 
@@ -15,13 +15,13 @@ Behavior:
 
 1. Take the text after the command as the task prompt.
 
-2. Call the MCP tool `mcp__three__info` with:
+2. Call the MCP tool `mcp__three__info` with (skip if you already validated roles in this thread via `/three:conductor`):
    - `cd`: `.`
 
-   If the role `sisyphus` is not listed, stop and explain:
+   If the role `builder` is missing or `enabled=false`, stop and explain:
    - the role is missing in `~/.config/three/config.json`
    - list available roles
-   - suggest either adding a `sisyphus` role or choosing a different role and re-running
+   - suggest either adding a `builder` role or choosing a different role and re-running
 
 3. Decide whether this is a code-change request.
 
@@ -32,7 +32,7 @@ Behavior:
    Always:
    - `PROMPT`: the user's task prompt
    - `cd`: `.`
-   - `role`: `sisyphus`
+   - `role`: `builder`
 
    If code-change:
    - `contract`: `patch_with_citations`

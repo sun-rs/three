@@ -72,114 +72,64 @@
     }
   },
   "roles": {
-    "codex_reader": {
+    "oracle": {
       "model": "codex/gpt-5.2@xhigh",
-      "timeout_secs": 300,
+      "timeout_secs": 900,
       "personas": {
-        "description": "Codex read-only role for deep analysis (gpt-5.2@xhigh).",
-        "prompt": "You are a careful reviewer. Read and analyze only; do not propose file edits unless asked."
+        "description": "Architecture decisions with long-term tradeoffs.",
+        "prompt": "You are Oracle, a senior architect. Focus on architecture, tradeoffs, and long-term risks. Avoid implementation details unless asked."
       },
       "capabilities": {
         "filesystem": "read-only"
       }
     },
-    "codex_writer": {
+    "builder": {
       "model": "codex/gpt-5.2-codex@high",
       "timeout_secs": 600,
-      "personas": {
-        "description": "Codex write-enabled role using gpt-5.2-codex@high.",
-        "prompt": "You can create and modify files when required. Keep changes minimal and verifiable."
-      },
       "capabilities": {
         "filesystem": "read-write"
       }
     },
-    "claude_reader": {
+    "researcher": {
+      "model": "gemini/gemini-3-pro-preview",
+      "timeout_secs": 600,
+      "capabilities": {
+        "filesystem": "read-only"
+      }
+    },
+    "reviewer": {
       "model": "claude/claude-opus-4-5-20251101",
       "timeout_secs": 300,
-      "personas": {
-        "description": "Claude read-only role for deep analysis (Opus 4.5).",
-        "prompt": "You are a repo reader. Summarize structure and point to exact files and symbols. Do not invent."
-      },
       "capabilities": {
         "filesystem": "read-only"
       }
     },
-    "claude_writer": {
-      "model": "claude/claude-sonnet-4-5-20250929",
-      "timeout_secs": 600,
-      "personas": {
-        "description": "Claude write-enabled role for fast edits (Sonnet 4.5).",
-        "prompt": "You can create and modify files when required. Keep changes minimal and verifiable."
-      },
-      "capabilities": {
-        "filesystem": "read-write"
-      }
-    },
-    "gemini_reader": {
-      "model": "gemini/gemini-3-pro-preview",
+    "critic": {
+      "model": "claude/claude-opus-4-5-20251101",
       "timeout_secs": 300,
-      "personas": {
-        "description": "Gemini 3 Pro read-only role for deep analysis.",
-        "prompt": "You are a repo reader. Summarize structure and point to exact files and symbols. Do not invent."
-      },
       "capabilities": {
         "filesystem": "read-only"
       }
     },
-    "gemini_writer": {
+    "sprinter": {
       "model": "gemini/gemini-3-flash-preview",
-      "timeout_secs": 600,
-      "personas": {
-        "description": "Gemini 3 Flash write-enabled role for quick edits.",
-        "prompt": "You can create and modify files when required. Keep changes minimal and verifiable."
-      },
+      "timeout_secs": 120,
       "capabilities": {
-        "filesystem": "read-write"
+        "filesystem": "read-only"
       }
     },
     "kimi_reader": {
       "model": "kimi/default",
       "timeout_secs": 300,
-      "personas": {
-        "description": "INTENTIONAL INVALID EXAMPLE: used to test MCP capability-range validation (Kimi backend does not support read-only).",
-        "prompt": "You are a repo reader. Summarize structure and point to exact files and symbols. Do not invent."
-      },
       "capabilities": {
-        "filesystem": "read-write"
-      }
-    },
-    "kimi_writer": {
-      "model": "kimi/default",
-      "timeout_secs": 600,
-      "personas": {
-        "description": "Kimi write-enabled role.",
-        "prompt": "You can create and modify files when required. Keep changes minimal and verifiable."
-      },
-      "capabilities": {
-        "filesystem": "read-write"
+        "filesystem": "read-only"
       }
     },
     "opencode_reader": {
       "model": "opencode/cchGemini/gemini-3-pro-high",
       "timeout_secs": 300,
-      "personas": {
-        "description": "INTENTIONAL INVALID EXAMPLE: used to test MCP capability-range validation (OpenCode backend does not support read-only).",
-        "prompt": "You are a repo reader. Summarize structure and point to exact files and symbols. Do not invent."
-      },
       "capabilities": {
-        "filesystem": "read-write"
-      }
-    },
-    "opencode_writer": {
-      "model": "opencode/cchGemini/gemini-3-flash-high",
-      "timeout_secs": 600,
-      "personas": {
-        "description": "OpenCode write-enabled role for fast edits.",
-        "prompt": "You can create and modify files when required. Keep changes minimal and verifiable."
-      },
-      "capabilities": {
-        "filesystem": "read-write"
+        "filesystem": "read-only"
       }
     }
   }

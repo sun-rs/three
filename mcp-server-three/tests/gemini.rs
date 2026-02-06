@@ -120,7 +120,7 @@ fn cfgtest_render_gemini_include_directories_handles_extensionless_file() {
 
     let cfg_path = example_loader();
     let prompt = format!("Read {}", outside.display());
-    let args = render_args_for_role(&cfg_path, &repo, "gemini_reader", &prompt);
+    let args = render_args_for_role(&cfg_path, &repo, "researcher", &prompt);
 
     let include_idx = args.iter().position(|v| v == "--include-directories").unwrap();
     let include_val = args.get(include_idx + 1).expect("include value");
@@ -137,8 +137,8 @@ async fn cfgtest_real_gemini_3flash_smoke() {
 
     let cfg_path = example_loader();
     let prompt = prompt_date();
-    print_rendered_command(&cfg_path, &repo, "gemini_writer", &prompt);
-    let out = run_role(&cfg_path, &repo, "gemini_writer", prompt).await;
+    print_rendered_command(&cfg_path, &repo, "sprinter", &prompt);
+    let out = run_role(&cfg_path, &repo, "sprinter", prompt).await;
 
     assert!(out.success, "error={:?}", out.error);
     let re = Regex::new(r"DATE:\d{4}-\d{2}-\d{2}").unwrap();
@@ -154,8 +154,8 @@ async fn cfgtest_real_gemini_3pro_smoke() {
 
     let cfg_path = example_loader();
     let prompt = prompt_date();
-    print_rendered_command(&cfg_path, &repo, "gemini_reader", &prompt);
-    let out = run_role(&cfg_path, &repo, "gemini_reader", prompt).await;
+    print_rendered_command(&cfg_path, &repo, "researcher", &prompt);
+    let out = run_role(&cfg_path, &repo, "researcher", prompt).await;
 
     assert!(out.success, "error={:?}", out.error);
     let re = Regex::new(r"DATE:\d{4}-\d{2}-\d{2}").unwrap();
@@ -177,8 +177,8 @@ async fn cfgtest_real_gemini_readonly_create_file() {
 
     let cfg_path = example_loader();
     let prompt = prompt_create_file(&target);
-    print_rendered_command(&cfg_path, &repo, "gemini_reader", &prompt);
-    let out = run_role(&cfg_path, &repo, "gemini_reader", prompt).await;
+    print_rendered_command(&cfg_path, &repo, "researcher", &prompt);
+    let out = run_role(&cfg_path, &repo, "researcher", prompt).await;
 
     assert!(out.success, "error={:?}", out.error);
     let reported_true = out.agent_messages.contains("RESULT:true");
@@ -204,8 +204,8 @@ async fn cfgtest_real_gemini_readwrite_create_file() {
 
     let cfg_path = example_loader();
     let prompt = prompt_create_file(&target);
-    print_rendered_command(&cfg_path, &repo, "gemini_writer", &prompt);
-    let out = run_role(&cfg_path, &repo, "gemini_writer", prompt).await;
+    print_rendered_command(&cfg_path, &repo, "sprinter", &prompt);
+    let out = run_role(&cfg_path, &repo, "sprinter", prompt).await;
 
     assert!(out.success, "error={:?}", out.error);
     assert!(out.agent_messages.contains("RESULT:true"), "msg={}", out.agent_messages);
@@ -233,13 +233,13 @@ async fn cfgtest_real_gemini_include_directories_reads_external_file() {
         external = external_file.display(),
         expected = content
     );
-    let args = render_args_for_role(&cfg_path, &repo, "gemini_writer", &prompt);
+    let args = render_args_for_role(&cfg_path, &repo, "sprinter", &prompt);
     let include_idx = args.iter().position(|v| v == "--include-directories").unwrap();
     let include_val = args.get(include_idx + 1).expect("include value");
     let includes: Vec<&str> = include_val.split(',').collect();
     assert!(includes.iter().any(|v| *v == external_dir.to_string_lossy()));
-    print_rendered_command(&cfg_path, &repo, "gemini_writer", &prompt);
-    let out = run_role(&cfg_path, &repo, "gemini_writer", prompt).await;
+    print_rendered_command(&cfg_path, &repo, "sprinter", &prompt);
+    let out = run_role(&cfg_path, &repo, "sprinter", prompt).await;
 
     assert!(out.success, "error={:?}", out.error);
     assert!(out.agent_messages.contains(&content), "msg={}", out.agent_messages);
@@ -273,15 +273,15 @@ async fn cfgtest_real_gemini_include_directories_reads_multiple_external_files()
         expected_b = content_b
     );
 
-    let args = render_args_for_role(&cfg_path, &repo, "gemini_writer", &prompt);
+    let args = render_args_for_role(&cfg_path, &repo, "sprinter", &prompt);
     let include_idx = args.iter().position(|v| v == "--include-directories").unwrap();
     let include_val = args.get(include_idx + 1).expect("include value");
     let includes: Vec<&str> = include_val.split(',').collect();
     assert!(includes.iter().any(|v| *v == external_dir_a.to_string_lossy()));
     assert!(includes.iter().any(|v| *v == external_dir_b.to_string_lossy()));
 
-    print_rendered_command(&cfg_path, &repo, "gemini_writer", &prompt);
-    let out = run_role(&cfg_path, &repo, "gemini_writer", prompt).await;
+    print_rendered_command(&cfg_path, &repo, "sprinter", &prompt);
+    let out = run_role(&cfg_path, &repo, "sprinter", prompt).await;
 
     assert!(out.success, "error={:?}", out.error);
     assert!(out.agent_messages.contains(&content_a), "msg={}", out.agent_messages);

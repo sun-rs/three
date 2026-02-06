@@ -7,6 +7,7 @@ description: Show effective three role->model mapping (no LLM calls)
 Show which backend/model/effort/policy each `three` role uses.
 
 This command calls `mcp__three__info` which only reads config (no codex/gemini).
+Persona previews come from built-in defaults unless overridden in config.
 
 ## Steps
 

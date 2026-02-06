@@ -10,10 +10,10 @@ Use this for architecture tradeoffs, hard debugging, or high-risk decisions.
 
 1. Take the text after the command as the task prompt.
 
-2. Call the MCP tool `mcp__three__info` with:
+2. Call the MCP tool `mcp__three__info` with (skip if you already validated roles in this thread via `/three:conductor`):
    - `cd`: `.`
 
-   If the role `oracle` is not listed, stop and explain:
+   If the role `oracle` is missing or `enabled=false`, stop and explain:
    - the role is missing in `~/.config/three/config.json`
    - list available roles
    - suggest either adding an `oracle` role or choosing a different role and re-running

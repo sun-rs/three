@@ -619,7 +619,7 @@ mod tests {
         let repo = td.path().join("repo");
         std::fs::create_dir_all(&repo).unwrap();
         let cfg_path = crate::test_utils::example_config_path();
-        let args = render_args_for_role(&cfg_path, &repo, "gemini_reader");
+        let args = render_args_for_role(&cfg_path, &repo, "researcher");
         assert_gemini_render(&args, "gemini-3-pro-preview", true, true);
     }
 
@@ -637,7 +637,7 @@ mod tests {
         let cfg_path = crate::test_utils::example_config_path();
         let prompt = format!("Read {}", outside_file.display());
         let args =
-            render_args_for_role_with_prompt(&cfg_path, &repo, "gemini_reader", &prompt);
+            render_args_for_role_with_prompt(&cfg_path, &repo, "researcher", &prompt);
         assert!(args.contains(&"--include-directories".to_string()));
         assert!(args.contains(&outside.to_string_lossy().to_string()));
     }
@@ -649,9 +649,9 @@ mod tests {
         std::fs::create_dir_all(&repo).unwrap();
 
         let cfg_path = crate::test_utils::example_config_path();
-        let prompt = "[THREE_PERSONA id=gemini_reader]\nfoo\n[/THREE_PERSONA]\nRead this";
+        let prompt = "[THREE_PERSONA id=researcher]\nfoo\n[/THREE_PERSONA]\nRead this";
         let args =
-            render_args_for_role_with_prompt(&cfg_path, &repo, "gemini_reader", prompt);
+            render_args_for_role_with_prompt(&cfg_path, &repo, "researcher", prompt);
         assert!(!args.contains(&"--include-directories".to_string()));
         assert!(!args.iter().any(|t| t == "/THREE_PERSONA"));
     }

@@ -1,7 +1,8 @@
 use crate::{
     backend,
-    config::ConfigLoader,
+    config::{parse_role_model_ref, ConfigLoader},
     contract,
+    personas::resolve_persona,
     session_store::{now_unix_secs, SessionRecord, SessionStore},
 };
 use rmcp::{
@@ -178,6 +179,7 @@ struct InfoRole {
     backend: String,
     model: String,
     description: String,
+    enabled: bool,
     prompt_present: bool,
     prompt_len: Option<usize>,
     prompt_preview: Option<String>,
@@ -529,15 +531,15 @@ impl VibeServer {
         let mut errors: Vec<String> = Vec::new();
 
         for (role_id, role_cfg) in &cfg.roles {
-            let resolved = match cfg.resolve_profile(Some(role_id)) {
-                Ok(r) => r,
-                Err(e) => {
-                    errors.push(format!("role '{role_id}' invalid: {e}"));
-                    continue;
-                }
-            };
-
-            let prompt_raw = role_cfg.personas.prompt.trim();
+            let persona = resolve_persona(role_id, role_cfg.personas.as_ref());
+            let description = persona
+                .as_ref()
+                .map(|p| p.description.clone())
+                .unwrap_or_default();
+            let prompt_raw = persona
+                .as_ref()
+                .map(|p| p.prompt.trim())
+                .unwrap_or("");
             let (prompt_present, prompt_len, prompt_preview) = if prompt_raw.is_empty() {
                 (false, None, None)
             } else {
@@ -551,11 +553,42 @@ impl VibeServer {
                 (true, Some(len), Some(preview))
             };
 
+            let enabled = role_cfg.enabled;
+            if !enabled {
+                let (backend_id, model_id, _variant) = match parse_role_model_ref(&role_cfg.model) {
+                    Ok(parts) => parts,
+                    Err(e) => {
+                        errors.push(format!("role '{role_id}' invalid: {e}"));
+                        continue;
+                    }
+                };
+                roles.push(InfoRole {
+                    role: role_id.to_string(),
+                    backend: backend_id,
+                    model: model_id,
+                    description,
+                    enabled,
+                    prompt_present,
+                    prompt_len,
+                    prompt_preview,
+                });
+                continue;
+            }
+
+            let resolved = match cfg.resolve_profile(Some(role_id)) {
+                Ok(r) => r,
+                Err(e) => {
+                    errors.push(format!("role '{role_id}' invalid: {e}"));
+                    continue;
+                }
+            };
+
             roles.push(InfoRole {
                 role: role_id.to_string(),
                 backend: resolved.profile.backend_id.clone(),
                 model: resolved.profile.model.clone(),
-                description: role_cfg.personas.description.clone(),
+                description,
+                enabled,
                 prompt_present,
                 prompt_len,
                 prompt_preview,
@@ -693,9 +726,17 @@ impl VibeServer {
             }
         }
 
+        let role_cfg = cfg.roles.get(&role).ok_or_else(|| {
+            McpError::internal_error(format!("role '{role}' missing after resolve"), None)
+        })?;
+        let persona = resolve_persona(&role, role_cfg.personas.as_ref());
+
         let is_resuming = !args.force_new_session && (explicit_session_id.is_some() || resumed);
         if !is_resuming && !prompt_text.contains("[THREE_PERSONA") {
-            let ptext = rp.profile.personas.prompt.trim();
+            let ptext = persona
+                .as_ref()
+                .map(|p| p.prompt.trim())
+                .unwrap_or("");
             if !ptext.is_empty() {
                 let bid = rp.role_id.as_str();
                 prompt_text = format!(
@@ -1139,6 +1180,66 @@ mod tests {
 
         let args = read_log_args(&log);
         assert!(!args.iter().any(|v| v == "resume"), "args={args:?}");
+    }
+
+    #[tokio::test]
+    async fn info_includes_enabled_flag() {
+        let td = tempfile::tempdir().unwrap();
+        let repo = td.path().join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+
+        let cfg_path = td.path().join("config.json");
+        std::fs::write(
+            &cfg_path,
+            r#"{
+  "backend": {
+    "codex": {
+      "models": { "gpt-5.2": {} }
+    }
+  },
+  "roles": {
+    "oracle": {
+      "model": "codex/gpt-5.2",
+      "enabled": false,
+      "personas": { "description": "d", "prompt": "p" },
+      "capabilities": { "filesystem": "read-only" }
+    },
+    "reader": {
+      "model": "codex/gpt-5.2",
+      "personas": { "description": "d2", "prompt": "p2" },
+      "capabilities": { "filesystem": "read-only" }
+    }
+  }
+}"#,
+        )
+        .unwrap();
+
+        let store = SessionStore::new(td.path().join("sessions.json"));
+        let server = VibeServer::new(ConfigLoader::new(Some(cfg_path)), store);
+
+        let out = server
+            .info(Parameters(InfoArgs {
+                cd: repo.to_string_lossy().to_string(),
+            }))
+            .await
+            .unwrap();
+
+        let content = out
+            .content
+            .first()
+            .and_then(|c| c.as_text())
+            .map(|t| t.text.clone())
+            .unwrap_or_default();
+        let v: serde_json::Value = serde_json::from_str(&content).unwrap();
+        let roles = v["roles"].as_array().unwrap();
+        let mut found = false;
+        for role in roles {
+            if role["role"] == "oracle" {
+                found = true;
+                assert_eq!(role["enabled"], false);
+            }
+        }
+        assert!(found, "role list should include disabled roles");
     }
 
     #[tokio::test]

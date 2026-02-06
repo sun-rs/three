@@ -154,8 +154,11 @@ pub enum OptionValue {
 #[derive(Debug, Clone, Deserialize)]
 pub struct RoleConfig {
     pub model: String,
-    pub personas: PersonaConfig,
+    #[serde(default)]
+    pub personas: Option<PersonaConfig>,
     pub capabilities: Capabilities,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
     #[serde(default)]
     pub timeout_secs: Option<u64>,
 }
@@ -168,6 +171,7 @@ pub struct PersonaConfig {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Capabilities {
+    #[serde(default = "default_filesystem_capability")]
     pub filesystem: FilesystemCapability,
     #[serde(default = "default_shell_capability")]
     pub shell: ShellCapability,
@@ -185,7 +189,7 @@ pub enum FilesystemCapability {
 }
 
 fn default_shell_capability() -> ShellCapability {
-    ShellCapability::Deny
+    ShellCapability::Allow
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
@@ -196,7 +200,11 @@ pub enum ShellCapability {
 }
 
 fn default_network_capability() -> NetworkCapability {
-    NetworkCapability::Deny
+    NetworkCapability::Allow
+}
+
+fn default_filesystem_capability() -> FilesystemCapability {
+    FilesystemCapability::ReadWrite
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
@@ -207,7 +215,11 @@ pub enum NetworkCapability {
 }
 
 fn default_tools() -> Vec<String> {
-    Vec::new()
+    vec!["*".to_string()]
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
@@ -250,7 +262,6 @@ pub struct RoleProfile {
     pub model: String,
     pub options: BTreeMap<String, OptionValue>,
     pub capabilities: Capabilities,
-    pub personas: PersonaConfig,
     pub adapter: AdapterConfig,
     pub timeout_secs: Option<u64>,
 }
@@ -303,6 +314,9 @@ impl VibeConfig {
             .roles
             .get(role_id)
             .ok_or_else(|| anyhow!("unknown role profile: {role_id}"))?;
+        if !role_cfg.enabled {
+            return Err(anyhow!("role '{role_id}' is disabled"));
+        }
 
         let (backend_id, model_id, variant) = parse_role_model_ref(&role_cfg.model)?;
         let backend = parse_backend_key(&backend_id)?;
@@ -349,7 +363,6 @@ impl VibeConfig {
                 model: model_id,
                 options,
                 capabilities: role_cfg.capabilities.clone(),
-                personas: role_cfg.personas.clone(),
                 adapter,
                 timeout_secs: role_cfg.timeout_secs.or(backend_cfg.timeout_secs),
             },
@@ -386,7 +399,7 @@ fn parse_backend_key(provider_id: &str) -> Result<Backend> {
     })
 }
 
-fn parse_role_model_ref(s: &str) -> Result<(String, String, Option<String>)> {
+pub(crate) fn parse_role_model_ref(s: &str) -> Result<(String, String, Option<String>)> {
     let (backend, rest) = s
         .split_once('/')
         .ok_or_else(|| anyhow!("role model reference must be 'backend/model@variant'"))?;
@@ -573,6 +586,37 @@ mod tests {
     }
 
     #[test]
+    fn rejects_disabled_role_on_resolve() {
+        let td = tempfile::tempdir().unwrap();
+        let path = td.path().join("cfg.json");
+        std::fs::write(
+            &path,
+            r#"{
+  "backend": {
+    "codex": {
+      "models": {
+        "gpt-5.2": {}
+      }
+    }
+  },
+  "roles": {
+    "disabled": {
+      "model": "codex/gpt-5.2",
+      "enabled": false,
+      "personas": {"description":"d","prompt":"p"},
+      "capabilities": {"filesystem":"read-only"}
+    }
+  }
+}"#,
+        )
+        .unwrap();
+
+        let cfg = VibeConfig::load(&path).unwrap();
+        let err = cfg.resolve_profile(Some("disabled")).unwrap_err();
+        assert!(err.to_string().contains("disabled"), "err={err}");
+    }
+
+    #[test]
     fn rejects_filesystem_deny_capability() {
         let td = tempfile::tempdir().unwrap();
         let path = td.path().join("cfg.json");
@@ -620,7 +664,7 @@ mod tests {
     "reader": {
       "model": "codex/gpt-5.2",
       "personas": {"description":"d","prompt":"p"},
-      "capabilities": {"filesystem":"read-only"}
+      "capabilities": {}
     }
   }
 }"#,
@@ -632,9 +676,13 @@ mod tests {
         let loader = ConfigLoader::new(Some(path));
         let cfg = loader.load_for_repo(&repo).unwrap().unwrap();
         let resolved = cfg.resolve_profile(Some("reader")).unwrap();
-        assert_eq!(resolved.profile.capabilities.shell, ShellCapability::Deny);
-        assert_eq!(resolved.profile.capabilities.network, NetworkCapability::Deny);
-        assert!(resolved.profile.capabilities.tools.is_empty());
+        assert_eq!(
+            resolved.profile.capabilities.filesystem,
+            FilesystemCapability::ReadWrite
+        );
+        assert_eq!(resolved.profile.capabilities.shell, ShellCapability::Allow);
+        assert_eq!(resolved.profile.capabilities.network, NetworkCapability::Allow);
+        assert_eq!(resolved.profile.capabilities.tools, vec!["*".to_string()]);
     }
 
     #[test]
@@ -854,7 +902,7 @@ mod tests {
     }
 
     #[test]
-    fn example_config_resolves_opencode_roles() {
+    fn example_config_rejects_opencode_reader() {
         let td = tempfile::tempdir().unwrap();
         let repo = td.path().join("repo");
         std::fs::create_dir_all(&repo).unwrap();
@@ -864,15 +912,10 @@ mod tests {
             ConfigLoader::new(Some(cfg_path));
         let cfg = loader.load_for_repo(&repo).unwrap().unwrap();
 
-        let reader = cfg.resolve_profile(Some("opencode_reader")).unwrap();
-        assert_eq!(reader.profile.backend_id, "opencode");
-        assert_eq!(reader.profile.model, "cchGemini/gemini-3-pro-high");
-        assert_eq!(reader.profile.capabilities.filesystem, FilesystemCapability::ReadWrite);
-
-        let writer = cfg.resolve_profile(Some("opencode_writer")).unwrap();
-        assert_eq!(writer.profile.backend_id, "opencode");
-        assert_eq!(writer.profile.model, "cchGemini/gemini-3-flash-high");
-        assert_eq!(writer.profile.capabilities.filesystem, FilesystemCapability::ReadWrite);
+        let err = cfg.resolve_profile(Some("opencode_reader")).unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("unsupported filesystem capability ReadOnly for backend 'opencode'"));
     }
 
     #[test]

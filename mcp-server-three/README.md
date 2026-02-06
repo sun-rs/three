@@ -1,6 +1,6 @@
 # Three: The Multi-LLM "Vibe Coding" Router
 
-**Three** is a unified orchestration system that turns Claude Code into a multi-soul coding cockpit. It allows you to delegate tasks to specialist agents (Oracle, Sisyphus, Reader) powered by different backend models (Codex, Gemini, Claude) while maintaining a single, coherent conversation context.
+**Three** is a unified orchestration system that turns Claude Code into a multi-soul coding cockpit. It allows you to delegate tasks to specialist agents (Oracle, Builder, Researcher) powered by different backend models (Codex, Gemini, Claude) while maintaining a single, coherent conversation context.
 
 ## 🌟 Why "Three"?
 
@@ -39,7 +39,7 @@ graph TD
 
 -   **Backend**: A CLI tool or API provider (e.g., `codex`, `gemini`).
 -   **Model (Brain)**: A specific configuration of a backend (e.g., `gpt-5.2` with `reasoning_effort=high`).
--   **Role**: A named persona with specific permissions, prompts, and default model (e.g., `oracle` = write access + high reasoning).
+-   **Role**: A named profile with model, capabilities, and optional persona override (e.g., `oracle` = read-only + high reasoning).
 -   **Session**: Persisted conversation state keyed by `(repo_root, role, model)`. Switching roles automatically switches context.
 
 ---
@@ -48,8 +48,8 @@ graph TD
 
 -   **Session Reuse**: Doesn't waste tokens re-sending context. Session IDs are stored locally and resumed automatically per role.
 -   **Native File Access**: External CLIs run *inside* your repo directory. They read files directly from disk, saving massive amounts of input tokens compared to pasting code into chat.
--   **Role Policies**: Enforce safety boundaries.
-    -   *Example*: `sisyphus` is `read-only`. `oracle` has `workspace-write`.
+-   **Role Policies**: Enforce capability boundaries.
+    -   *Example*: `builder` is `read-only`. `oracle` has `read-write`.
 -   **Roundtable**: Run concurrent debates between multiple models (e.g., "Have Oracle and Reader debate this architecture").
 -   **Configurable**: A single JSON file defines your entire agent fleet.
 
@@ -93,19 +93,24 @@ cp examples/config.json ~/.config/three/config.json
   "backend": {
     "codex": {
       "models": {
-        "gpt-high": { "id": "gpt-5.2", "options": { "reasoningEffort": "high" } }
+        "gpt-5.2-codex": {
+          "options": { "model_reasoning_effort": "high" }
+        }
       }
     }
   },
   "roles": {
     "oracle": {
-      "model": "codex/gpt-high",
-      "prompt": "You are a senior architect.",
-      "policy": { "codex": { "sandbox": "workspace-write" } }
+      "model": "codex/gpt-5.2-codex",
+      "capabilities": { "filesystem": "read-only" }
     }
   }
 }
 ```
+
+Notes:
+- Personas are built into the MCP server. `roles.<id>.personas` is optional and overrides the built-in persona for that role.
+- See `docs/config-schema.md` for full details.
 
 ### 4. Install Claude Code Plugin
 
@@ -128,10 +133,10 @@ claude plugin install three@three-local
 | Command | Description |
 | :--- | :--- |
 | `/three:oracle <task>` | Ask the "Oracle" role (high reasoning, deeper thought). |
-| `/three:sisyphus <task>` | Ask the "Sisyphus" role (fast execution, implementation). |
-| `/three:review <request>` | Ask the "Reviewer" role to critique code. |
+| `/three:builder <task>` | Ask the "Builder" role (fast execution, implementation). |
+| `/three:reviewer <request>` | Ask the "Reviewer" role to critique code. |
 | `/three:roundtable <topic>`| Start a multi-model debate on a topic. |
-| `/three:info` | Show current roles, models, and policy configuration. |
+| `/three:info` | Show current roles, models, and capability configuration. |
 
 ### Advanced: Session Management
 
@@ -150,14 +155,12 @@ Define available models under `backend.<provider>.models`.
 
 ### Roles
 Define agents under `roles.<name>`.
--   `model`: Reference to a model using `provider/model-key` syntax (e.g., `codex/gpt-high`).
--   `prompt`: System prompt/persona instructions.
+-   `model`: Reference to a model using `backend/model` syntax (e.g., `codex/gpt-5.2-codex`).
+-   `capabilities`: `filesystem`, `shell`, `network`, `tools` (defaults are permissive).
 -   `timeout_secs`: Execution timeout (default 600s).
--   `policy`:
-    -   `codex.sandbox`: `read-only` | `workspace-write` | `danger-full-access`.
-    -   `codex.ask_for_approval`: `untrusted` | `on-failure` | `on-request` | `never`.
-    -   `codex.dangerously_bypass_approvals_and_sandbox`: `true`/`false`.
-    -   `codex.skip_git_repo_check`: `true`/`false`.
+-   `personas` (optional): override the built-in persona.
+
+See `docs/config-schema.md` for the full schema and behavior.
 
 ---
 
