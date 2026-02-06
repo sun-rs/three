@@ -66,12 +66,16 @@
       "models": {
         "kimi-for-coding/k2p5": {}
       }
+    },
+    "kimi": {
+      "timeout_secs": 600,
+      "models": {}
     }
   },
   "roles": {
     "oracle": {
       "model": "codex/gpt-5.2@xhigh",
-      "timeout_secs": 900
+      "timeout_secs": 600
     },
     "builder": {
       "model": "codex/gpt-5.3-codex@xhigh",
