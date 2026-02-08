@@ -14,7 +14,7 @@ Slash command routing policy:
 - Commands must target explicit participants via `subagent_type`; they must not route via `category` or silently switch to `roundtable_native_roundtable`.
 - Command definitions are refreshed on each config load so updated routing rules replace stale templates from older plugin versions.
 - During `/roundtable`, native tools are soft-locked for that parent session to prevent silent fallback; explicit override requires `allow_native=true`.
-- Legacy command aliases (`roundtable-batch`, `roundtable_batch`, `roundtable-roundtable`, `roundtable_roundtable`, `roundtable:*`) are removed from command config by this plugin.
+- Stale command names (`roundtable_batch`, `roundtable-roundtable`, `roundtable_roundtable`, `roundtable:*`) are removed from command config by this plugin.
 
 This plugin is sisyphus-first: the main CLI agent remains `sisyphus` and delegates to OpenCode subagents.
 

@@ -142,7 +142,7 @@ claude plugin install roundtable@roundtable-local
 | :--- | :--- |
 | `/roundtable:conductor <task>` | Orchestrate work and decide when to use roundtable. |
 | `/roundtable:roundtable <topic>` | Multi-role consensus workflow (1–3 rounds). |
-| `mcp__roundtable__roundtable_batch` (`roundtable-batch`) | Independent fan-out with session reuse. |
+| `roundtable-batch` (`mcp__roundtable__roundtable_batch`) | Independent fan-out with session reuse. |
 | `/roundtable:oracle <task>` | Architecture and trade-off analysis. |
 | `/roundtable:builder <task>` | Implementation and debugging. |
 | `/roundtable:researcher <task>` | Codebase/doc search and grounding. |
