@@ -42,7 +42,7 @@
 项目正式转为 **roundtable-first**：
 
 - Roundtable 是核心能力与主产品方向。
-- roundtable-batch 保留为次要能力，主要用于独立任务并行扇出。
+- roundtable-batch 是次要能力，主要用于独立任务并行扇出。
 - MCP 路线上，独立任务并行只保留 `roundtable-batch`。
 
 ## 仓库结构
@@ -140,4 +140,4 @@ Adapter 说明：
 
 - MCP Server 是宿主无关组件，任何 MCP 宿主都可接入。
 - 插件/skills 是宿主相关组件。
-- 当前目录与插件 id 仍保留 `roundtable` 命名以避免破坏已有安装；品牌定位已转为 Roundtable-first。
+- 目录与插件 id 统一使用 `roundtable` 命名；品牌定位为 Roundtable-first。

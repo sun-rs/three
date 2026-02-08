@@ -42,7 +42,7 @@ Because these two systems optimize different constraints:
 The project is now explicitly **roundtable-first**:
 
 - Roundtable is the core capability and primary product direction.
-- Roundtable-batch remains secondary and is retained mainly for independent fan-out workloads.
+- Roundtable-batch is a secondary capability mainly for independent fan-out workloads.
 - On MCP track, independent fan-out is exposed only as `roundtable-batch`.
 
 ## Repo layout
@@ -142,4 +142,4 @@ Adapter notes:
 
 - The MCP server is host-agnostic; any MCP-capable CLI can use it.
 - Plugins/skills are host-specific by design.
-- Directory names keep `roundtable` for now to avoid breaking installed integrations; branding is Roundtable-first.
+- Directory names and plugin IDs are unified as `roundtable`; branding is Roundtable-first.
