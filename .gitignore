@@ -8,3 +8,6 @@
 # Editor
 .idea/
 .vscode/
+
+# Local symlink for OpenCode plugin development
+plugins/opencode/three/node_modules

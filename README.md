@@ -1,55 +1,107 @@
-# Three
+# Roundtable (formerly Three)
 
 [![English](https://img.shields.io/badge/lang-English-lightgrey)](README.md)
 [![中文](https://img.shields.io/badge/语言-中文-blue)](README.zh-CN.md)
 
-> **Multi-agent, multi-LLM orchestration system for complex software tasks**
+> **Roundtable-first multi-agent orchestration for serious software work**
 
-Three is a multi-agent, multi-LLM vibe-coding CLI system (MCP server + plugins) for Codex, Gemini, and Claude.
+This repository now has two distinct architecture tracks under one codebase:
 
-It helps you run serious engineering workflows with less prompt overhead:
-- Use `/three:conductor` to break down complex work and dispatch it across multiple specialist roles.
-- Use `/three:roundtable` to run 1-3 feedback rounds for hard tradeoffs, then synthesize a decision in the main CLI.
-- Use `mcp__three__batch` to parallelize independent tasks and still get partial results if some tasks fail.
-- Keep child-session reuse scoped by `client` + `conversation_id` (when provided), reducing cross-chat contamination.
+## Architecture Tracks
 
-## Why Three?
+### A) OpenCode Native Plugin Track (stateful, UI-first)
 
-Effective engineering requires multiple perspectives:
+- Runtime: OpenCode + oh-my-opencode plugin runtime
+- Core command: `/roundtable`
+- Orchestration path: `task(...) + background_output(...)`
+- Strength: clickable/traceable child sessions in TUI, strong sub-session continuity
+- Focus: roundtable debate/synthesis as the primary workflow
 
-- **🔮 Oracle** — Architecture, trade-offs, long-term risks
-- **🔨 Builder** — Implementation feasibility, correct execution
-- **🔍 Researcher** — Codebase and documentation grounding
-- **✅ Reviewer** — Quality and correctness checks
-- **⚡ Critic** — Contrarian risk analysis
-- **🚀 Sprinter** — Fast idea generation
+### B) MCP + Prompt Engineering Track (portable, host-agnostic)
 
-## Key Features
+- Runtime: `mcp-server-three` + host-specific text plugins/skills (Claude/Codex)
+- Claude/Codex entrypoints remain `/three:*` and `three-*` skills for compatibility
+- Core MCP tools: `roundtable`, `batch`, `roundtable-batch` (alias), `roundtable_batch` (alias), `info`
+- Strength: works across MCP-capable hosts, flexible parallel fan-out, explicit role control
+- Focus: portable orchestration where host-native agent/task APIs are unavailable
 
-### 🎯 Role-Based Agents
-Specialized agents with session-aware reuse and safe capability controls (filesystem, shell, network, tools).
+## Why the split?
 
-### 🔄 Cross-Model Validation
-Split complex tasks across multiple LLMs, cross-check results, and converge faster with less prompt overhead.
+Because these two systems optimize different constraints:
 
-### 🤝 Roundtable Consensus
-Run multi-round discussions where different models debate and synthesize decisions for tough architectural choices.
+| Dimension | OpenCode native track | MCP + prompt track |
+|---|---|---|
+| Orchestration substrate | Host-native task engine | MCP tool fan-out |
+| Session continuity | Native child sessions, UI-visible | Session-store + backend resume |
+| Observability | Clickable background tasks | MCP structured outputs/logs |
+| Role source | OpenCode/oh-my-opencode agent catalog | `~/.config/three/config*.json` roles |
+| Best use case | Deep roundtable discussions | Cross-host portability + scripted fan-out |
 
-### ⚡ Parallel Fan-Out
-Execute independent tasks concurrently with partial failure handling and real-time role completion logs.
+## Roundtable-first design
 
-## Quick Commands
+The project is now explicitly **roundtable-first**:
 
-- **`/three:conductor <task>`** — Orchestrate complex work and decide when to use roundtable
-- **`/three:roundtable <topic>`** — Multi-role consensus workflow (1-3 rounds)
-- **`/three:oracle <task>`** — Architecture and trade-off analysis
-- **`/three:builder <task>`** — Implementation and debugging
-- **`/three:reviewer <request>`** — Code review and risk finding
+- Roundtable is the core capability and primary product direction.
+- Batch remains secondary and is retained mainly for independent fan-out workloads.
+- On MCP track, `roundtable-batch` / `roundtable_batch` are provided as roundtable-branded aliases for `batch`.
 
 ## Repo layout
 
 - `mcp-server-three/` — MCP server (Rust). Routes prompts to configured backends with session reuse.
-- `plugins/claude-code/three/` — Claude Code plugin (slash commands).
+- `plugins/claude-code/three/` — Claude Code plugin (slash commands, `/three:*`).
+- `plugins/codex/three/` — Codex skills (`three-*`).
+- `plugins/opencode/three/` — OpenCode native plugin (`/roundtable`, native task orchestration).
+
+## OpenCode track quick start
+
+Install local plugin:
+
+```bash
+mkdir -p ~/.config/opencode/plugins
+ln -sf "$(pwd)/plugins/opencode/three/index.js" \
+  ~/.config/opencode/plugins/three-opencode.js
+```
+
+Restart OpenCode, then use:
+
+- `/roundtable` — hard-routed prompt contract to `task(...) + background_output(...)`
+
+Policy highlights:
+
+- Participant turns must use `subagent_type` (not `category`).
+- Round 2+ must continue previous participant sessions.
+- `three_native_roundtable` is soft-locked during `/roundtable` unless `allow_native=true` is explicitly set.
+
+## MCP track quick start
+
+1) Build MCP server:
+
+```bash
+cd mcp-server-three
+cargo build --release
+```
+
+2) Register server in Claude Code:
+
+```bash
+claude mcp add three -s user --transport stdio -- \
+  "$(pwd)/target/release/mcp-server-three"
+```
+
+3) Install Claude plugin:
+
+```bash
+claude plugin marketplace add "./plugins/claude-code"
+claude plugin install three@three-local
+```
+
+4) Use plugin commands (`/three:*`) and MCP tools:
+
+- `/three:conductor <task>`
+- `/three:roundtable <topic>`
+- `mcp__three__roundtable`
+- `mcp__three__roundtable_batch` (or `mcp__three__batch`)
+- `mcp__three__info`
 
 ## Docs index
 
@@ -57,69 +109,37 @@ Execute independent tasks concurrently with partial failure handling and real-ti
 - `docs/cli-*.md` — per-CLI flag mapping, session resume, and CLI-specific notes
 - `docs/config-schema.md` — config fields, defaults, and role resolution rules
 
-Client-specific configs: `config-<client>.json` is preferred when the MCP `client` param (or `THREE_CLIENT`) is set.
+Client-specific configs: `config-<client>.json` is preferred when MCP `client` (or `THREE_CLIENT`) is set.
 
 Note: `examples/config.json` is a technical-only template (no persona overrides).
-Personas are built into the MCP server; `roles.<id>.personas` is optional and overrides the built-in persona for that role
-(see `docs/config-schema.md` for a minimal override example).
-For Codex-hosted workflows, see `examples/config-codex.json` (roles avoid self-calling Codex by default).
+Personas are built into the MCP server; `roles.<id>.personas` is optional and overrides built-ins.
+For Codex-hosted workflows, see `examples/config-codex.json`.
 
-## CLI adapter matrix
+## CLI adapter matrix (MCP track)
 
 All backends are driven by the embedded adapter catalog (MiniJinja `args_template` + `output_parser`).
 Models are referenced as `backend/model@variant` (variant optional). Variants override `options`,
-and only take effect if the adapter maps those options into CLI flags. If an adapter declares
-`filesystem_capabilities`, unsupported values fail **per role** during `resolve_profile`.
+and only take effect if the adapter maps those options into CLI flags.
 
-| Backend (CLI) | Filesystem capabilities | Config → CLI flags | Model id naming | Options/variants mapping | Output parser & session |
+| Backend (CLI) | Filesystem capabilities | Config -> CLI flags | Model id naming | Options/variants mapping | Output parser & session |
 |---|---|---|---|---|---|
-| codex | read-only, read-write | `--sandbox read-only` / `--sandbox workspace-write` | `codex/<model>@variant` | Mapped to `-c key=value` (variants become `-c`), e.g. `model_reasoning_effort`, `text_verbosity` | `json_stream` (`thread_id`, `item.text`), session supported |
-| claude | read-only, read-write | `--permission-mode plan` / `--dangerously-skip-permissions` | `claude/<model>@variant` | Not mapped by default (extend adapter) | `json_object` (`session_id`, `result`), session supported |
-| gemini | read-only, read-write | `--approval-mode plan` + `--sandbox` / `-y` | `gemini/<model>@variant` | Not mapped by default (extend adapter) | `json_object` (`session_id`, `response`), session supported |
-| opencode | read-write only | no read-only flag (read-only rejected) | `opencode/<provider>/<model>@variant` | Not mapped by default (extend adapter) | `json_stream` (`part.sessionID`, `part.text`), session supported |
-| kimi | read-write only | no read-only flag (read-only rejected) | `kimi/<model>@variant` | Not mapped by default (extend adapter) | `text` (stateless), no session id |
+| codex | read-only, read-write | `--sandbox read-only` / `--sandbox workspace-write` | `codex/<model>@variant` | mapped to `-c key=value` (variants become `-c`) | `json_stream`, session supported |
+| claude | read-only, read-write | `--permission-mode plan` / `--dangerously-skip-permissions` | `claude/<model>@variant` | not mapped by default | `json_object`, session supported |
+| gemini | read-only, read-write | `--approval-mode plan` + `--sandbox` / `-y` | `gemini/<model>@variant` | not mapped by default | `json_object`, session supported |
+| opencode | read-write only | no read-only flag | `opencode/<provider>/<model>@variant` | not mapped by default | `json_stream`, session supported |
+| kimi | read-write only | no read-only flag | `kimi/<model>@variant` | not mapped by default | `text` (stateless), no session id |
 
 Adapter notes:
-- The adapter catalog is embedded in the server (no `adapter.json` config file).
-- `args_template` is a list of tokens; empty tokens are dropped.
-- `include_directories` is auto-derived from absolute paths in the prompt (Gemini).
-- All embedded adapters default to `prompt_transport=auto`: long prompts are sent via `stdin` instead of argv (no mixed transport).
+
+- Adapter catalog is embedded in server (no `adapter.json`).
+- `args_template` is a token list; empty tokens are dropped.
+- `include_directories` auto-derives from absolute paths in prompt (Gemini).
+- Embedded adapters default to `prompt_transport=auto`.
 - `json_stream` supports optional fallback parsing (`fallback=codex`) when `message_path` is missing.
-- Backends may define `fallback` to retry on model-not-found errors (can span backends).
-
-## Quick start
-
-1) Build the MCP server:
-
-```bash
-cd mcp-server-three
-cargo build --release
-```
-
-Note: the compiled binary is `target/release/mcp-server-three`. The MCP server name you register can still be `three`.
-
-2) Register the MCP server with Claude Code:
-
-```bash
-claude mcp add three -s user --transport stdio -- \
-  "$(pwd)/target/release/mcp-server-three"
-```
-
-3) Install the Claude Code plugin:
-
-```bash
-claude plugin marketplace add "./plugins/claude-code"
-claude plugin install three@three-local
-```
-
-4) Use the plugin commands:
-- `/three:conductor <task>` for orchestration
-- `/three:roundtable <topic>` for multi-agent consensus
-- `/three:oracle|builder|researcher|reviewer|critic|sprinter <task>` for specialist roles
-
-Parallel fan-out: use `mcp__three__batch` to run multiple independent tasks in one MCP call (partial failures are returned).
+- Backends may define `fallback` to retry model-not-found errors.
 
 ## Notes
 
-- The MCP server is host-agnostic; any CLI that supports MCP can use it.
-- Plugins are CLI-specific; add new ones under `plugins/<cli>/`.
+- The MCP server is host-agnostic; any MCP-capable CLI can use it.
+- Plugins/skills are host-specific by design.
+- Directory names keep `three` for now to avoid breaking installed integrations; branding is Roundtable-first.

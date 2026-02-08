@@ -1,8 +1,8 @@
-# Three: The Multi-LLM "Vibe Coding" Router
+# Roundtable MCP Server (formerly Three)
 
-**Three** is a unified orchestration system that turns Claude Code into a multi-role coding cockpit. It lets you delegate tasks to specialist agents (Oracle, Builder, Researcher, Reviewer, Critic, Sprinter) powered by different backend models (Codex, Gemini, Claude) while maintaining a single, coherent conversation context.
+**Roundtable MCP Server** (directory name still `mcp-server-three`) is the portable orchestration core for multi-role coding workflows. It lets you delegate tasks to specialist agents (Oracle, Builder, Researcher, Reviewer, Critic, Sprinter) powered by different backend models (Codex, Gemini, Claude) while maintaining a single, coherent conversation context.
 
-## 🌟 Why "Three"?
+## 🌟 Why Roundtable-first?
 
 Because effective engineering often requires three core perspectives:
 1. **Oracle** (architecture, trade-offs, long-term risks)
@@ -142,7 +142,8 @@ claude plugin install three@three-local
 | :--- | :--- |
 | `/three:conductor <task>` | Orchestrate work and decide when to use roundtable. |
 | `/three:roundtable <topic>` | Multi-role consensus workflow (1–3 rounds). |
-| `mcp__three__batch` | Parallel fan-out for independent tasks (partial failures returned). |
+| `mcp__three__roundtable_batch` (`roundtable-batch`) | Roundtable-first alias of batch for independent fan-out. |
+| `mcp__three__batch` | Legacy batch name (kept for compatibility). |
 | `/three:oracle <task>` | Architecture and trade-off analysis. |
 | `/three:builder <task>` | Implementation and debugging. |
 | `/three:researcher <task>` | Codebase/doc search and grounding. |

@@ -443,6 +443,36 @@ impl VibeServer {
         Ok(CallToolResult::success(vec![Content::text(json)]))
     }
 
+    /// Alias of `batch` with Roundtable-first naming.
+    #[tool(
+        name = "roundtable-batch",
+        description = "Roundtable-first alias of batch: run multiple tasks in parallel with session reuse"
+    )]
+    async fn roundtable_batch(
+        &self,
+        peer: Peer<RoleServer>,
+        Parameters(args): Parameters<BatchArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let out = self.run_batch_internal(Some(peer), args).await?;
+        let json = serde_json::to_string(&out).map_err(|e| {
+            McpError::internal_error(format!("failed to serialize output: {e}"), None)
+        })?;
+        Ok(CallToolResult::success(vec![Content::text(json)]))
+    }
+
+    /// Alias of `batch` for hosts that prefer underscore tool naming.
+    #[tool(
+        name = "roundtable_batch",
+        description = "Alias of roundtable-batch"
+    )]
+    async fn roundtable_batch_underscore(
+        &self,
+        peer: Peer<RoleServer>,
+        Parameters(args): Parameters<BatchArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        self.roundtable_batch(peer, Parameters(args)).await
+    }
+
     /// Run a multi-role discussion on a topic and return participant contributions.
     #[tool(
         name = "roundtable",
@@ -1535,7 +1565,7 @@ impl ServerHandler for VibeServer {
             capabilities: ServerCapabilities::builder().enable_tools().build(),
             server_info: Implementation::from_build_env(),
             instructions: Some(
-                "This server provides 'batch', 'roundtable', and 'info' tools for multi-role orchestration."
+                "This server provides 'roundtable' (core), 'batch'/'roundtable-batch' (fan-out), and 'info' tools for multi-role orchestration."
                     .to_string(),
             ),
         }
