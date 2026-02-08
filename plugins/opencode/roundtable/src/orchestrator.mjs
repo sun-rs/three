@@ -264,17 +264,36 @@ ${topic}
 
 You are ${agent}.
 
-Reply with:
-1) Position (1-2 sentences)
-2) Key reasons (bullets)
-3) Risks (bullets)
-4) Recommendation (1 sentence)`;
+Your task is to provide your initial analysis of this topic. This is the first round of a multi-round deliberative discussion.
+
+Structure your response EXACTLY as follows:
+
+1. POSITION:
+   State your main stance or conclusion in 1-2 clear sentences.
+
+2. KEY REASONS:
+   List 3-5 specific reasons supporting your position.
+   - Use bullet points
+   - Be concrete and specific
+   - Cite evidence, data, or logical reasoning where applicable
+
+3. POTENTIAL RISKS/CONCERNS:
+   List 2-4 potential risks, downsides, or concerns about your position.
+   - Use bullet points
+   - Be honest about limitations
+   - Consider alternative perspectives
+
+4. RECOMMENDATION:
+   Provide a clear, actionable recommendation in 1-2 sentences.
+
+IMPORTANT: Be thorough but concise. Your response will be shared with other participants who will critique and build upon it.`;
   }
 
-  const peerRef = anonymousViewpoints ? 'response labels' : 'named peers';
+  const peerRef = anonymousViewpoints ? 'other responses' : 'your peers';
+  const peerRefCaps = anonymousViewpoints ? 'OTHER RESPONSES' : 'YOUR PEERS';
   const contextTitle = anonymousViewpoints
-    ? 'Previous round viewpoints (anonymized substantial excerpts):'
-    : 'Previous round viewpoints (substantial excerpts):';
+    ? '=== PREVIOUS ROUND RESPONSES (ANONYMIZED) ==='
+    : '=== PREVIOUS ROUND RESPONSES FROM YOUR PEERS ===';
 
   return `${header}
 TOPIC:
@@ -285,11 +304,50 @@ ${previousContext || '(none)'}
 
 You are ${agent}.
 
-Reply with:
-1) Do you change your position?
-2) Agreements with ${peerRef} (bullets)
-3) Remaining disagreement with ${peerRef} (bullets)
-4) Updated recommendation`;
+CRITICAL INSTRUCTIONS: This is a DELIBERATIVE DISCUSSION, not a monologue. You MUST engage with the responses above.
+
+Your response MUST include ALL of the following sections:
+
+1. POSITION UPDATE:
+   - State clearly: Have you changed your position after reading ${peerRef}? (Answer: Yes/No/Partially)
+   - If YES or PARTIALLY: Explain specifically what changed your mind and why. Quote or reference the arguments that convinced you.
+   - If NO: Explain why you maintain your position despite the arguments presented. Address the strongest opposing points directly.
+
+2. AGREEMENTS WITH ${peerRefCaps}:
+   - List specific points where you agree with ${peerRef}
+   - For EACH agreement, you MUST:
+     * Cite which response you're agreeing with (e.g., "I agree with Response A's point that...")
+     * Explain WHY you find this point compelling
+     * Add any supporting evidence or reasoning
+   - If you agree with nothing, explain why all other positions are flawed
+
+3. DISAGREEMENTS WITH ${peerRefCaps}:
+   - List specific points where you disagree with ${peerRef}
+   - For EACH disagreement, you MUST:
+     * Cite which response you're disagreeing with (e.g., "I disagree with Response B's claim that...")
+     * Explain WHY you disagree (provide counter-arguments or evidence)
+     * Address the strongest version of their argument (steel-man it, then refute it)
+   - If you disagree with nothing, explain why you now fully align with the consensus
+
+4. NEW INSIGHTS & SYNTHESIS:
+   - What new insights or perspectives emerged from this round?
+   - Are there any middle-ground positions or compromises that could resolve disagreements?
+   - What questions or uncertainties remain unresolved?
+   - Has the discussion revealed any blind spots in your original thinking?
+
+5. UPDATED RECOMMENDATION:
+   - Based on the full discussion so far, what is your current recommendation?
+   - How does it differ from your Round 1 recommendation (if at all)?
+   - What confidence level do you have in this recommendation (high/medium/low)?
+
+CRITICAL REQUIREMENTS:
+- Be SPECIFIC when referencing ${peerRef}. Don't just say "I agree" - say "I agree with [Response A/Agent X]'s point about [specific claim] because [specific reason]"
+- ENGAGE with the strongest arguments against your position. Don't cherry-pick weak arguments to refute.
+- If you're changing your mind, explain the reasoning process clearly
+- If you're NOT changing your mind, you must demonstrate that you've seriously considered the alternatives
+- This is a DISCUSSION - show that you're listening and thinking, not just repeating yourself
+
+Your goal is to help the group converge on the best answer through rigorous debate and synthesis.`;
 }
 
 export function summarizeRound(contributions) {
@@ -316,6 +374,116 @@ export function summarizeRound(contributions) {
   return lines.join('\n');
 }
 
+/**
+ * Detect if discussion has converged (participants are repeating similar positions)
+ * or if there's still active disagreement and evolution of ideas.
+ */
+export function analyzeDiscussionDynamics(roundsOut) {
+  if (roundsOut.length < 2) {
+    return {
+      converged: false,
+      convergence_score: 0,
+      active_disagreement: true,
+      recommendation: 'continue',
+      reason: 'insufficient_rounds_for_analysis',
+    };
+  }
+
+  const lastRound = roundsOut[roundsOut.length - 1];
+  const prevRound = roundsOut[roundsOut.length - 2];
+
+  const lastSuccessful = lastRound.contributions.filter(c => c.success);
+  const prevSuccessful = prevRound.contributions.filter(c => c.success);
+
+  if (lastSuccessful.length === 0 || prevSuccessful.length === 0) {
+    return {
+      converged: false,
+      convergence_score: 0,
+      active_disagreement: false,
+      recommendation: 'stop',
+      reason: 'insufficient_successful_responses',
+    };
+  }
+
+  // Calculate text similarity between rounds for each agent
+  const agentSimilarities = [];
+  for (const lastContrib of lastSuccessful) {
+    const prevContrib = prevSuccessful.find(p => p.agent === lastContrib.agent);
+    if (prevContrib) {
+      const similarity = calculateTextSimilarity(lastContrib.text, prevContrib.text);
+      agentSimilarities.push({
+        agent: lastContrib.agent,
+        similarity,
+        text_length_last: lastContrib.text.length,
+        text_length_prev: prevContrib.text.length,
+      });
+    }
+  }
+
+  if (agentSimilarities.length === 0) {
+    return {
+      converged: false,
+      convergence_score: 0,
+      active_disagreement: true,
+      recommendation: 'continue',
+      reason: 'different_participants_across_rounds',
+    };
+  }
+
+  const avgSimilarity = agentSimilarities.reduce((sum, item) => sum + item.similarity, 0) / agentSimilarities.length;
+  const highSimilarityCount = agentSimilarities.filter(item => item.similarity > 0.80).length;
+  const convergenceRatio = highSimilarityCount / agentSimilarities.length;
+
+  // Detect if responses are getting shorter (sign of repetition/fatigue)
+  const avgLengthChange = agentSimilarities.reduce((sum, item) => {
+    return sum + (item.text_length_last - item.text_length_prev);
+  }, 0) / agentSimilarities.length;
+
+  const isConverged = convergenceRatio > 0.65 || (avgSimilarity > 0.75 && avgLengthChange < -200);
+
+  return {
+    converged: isConverged,
+    convergence_score: avgSimilarity,
+    convergence_ratio: convergenceRatio,
+    avg_similarity: avgSimilarity,
+    high_similarity_count: highSimilarityCount,
+    avg_length_change: Math.round(avgLengthChange),
+    active_disagreement: !isConverged,
+    recommendation: isConverged ? 'stop' : 'continue',
+    reason: isConverged
+      ? 'positions_stabilized_or_repetitive'
+      : 'discussion_still_evolving',
+    agent_similarities: agentSimilarities,
+  };
+}
+
+/**
+ * Calculate text similarity using Jaccard similarity on word sets.
+ * Returns a value between 0 (completely different) and 1 (identical).
+ */
+function calculateTextSimilarity(text1, text2) {
+  if (!text1 || !text2) return 0;
+
+  // Normalize and tokenize
+  const normalize = (text) => {
+    return String(text)
+      .toLowerCase()
+      .replace(/[^\w\s]/g, ' ')
+      .split(/\s+/)
+      .filter(word => word.length > 2); // Filter out very short words
+  };
+
+  const words1 = new Set(normalize(text1));
+  const words2 = new Set(normalize(text2));
+
+  if (words1.size === 0 || words2.size === 0) return 0;
+
+  const intersection = new Set([...words1].filter(x => words2.has(x)));
+  const union = new Set([...words1, ...words2]);
+
+  return intersection.size / union.size;
+}
+
 export function buildRoundContext(contributions, options = {}) {
   const limits = resolveRoundContextLimits(options);
   const anonymousViewpoints = Boolean(options.anonymousViewpoints);
@@ -323,17 +491,27 @@ export function buildRoundContext(contributions, options = {}) {
   const failedItems = contributions.filter((item) => !item.success);
 
   const lines = [
-    `Participants: ${contributions.length}`,
-    `Success: ${successItems.length}`,
-    `Failed: ${failedItems.length}`,
-    `Context policy: level=${limits.level}, per_agent<=${limits.perAgentChars}, total<=${limits.totalChars}, anonymous=${anonymousViewpoints}`,
-    '',
+    `ROUND SUMMARY:`,
+    `- Total participants: ${contributions.length}`,
+    `- Successful responses: ${successItems.length}`,
+    `- Failed responses: ${failedItems.length}`,
+    ``,
+    `INSTRUCTIONS FOR READING THESE RESPONSES:`,
+    `1. Read ALL responses carefully and completely`,
+    `2. Identify points of AGREEMENT (where multiple responses align)`,
+    `3. Identify points of DISAGREEMENT (where responses conflict)`,
+    `4. Evaluate the STRENGTH of each argument (evidence, logic, reasoning)`,
+    `5. Consider what's MISSING from the discussion`,
+    `6. Think about how to SYNTHESIZE or RESOLVE disagreements`,
+    ``,
+    `YOUR TASK: Respond to these viewpoints by engaging with specific arguments, not by repeating your previous position.`,
+    ``,
   ];
 
   const labelMap = [];
 
   if (successItems.length === 0) {
-    lines.push('No successful viewpoints in previous round.');
+    lines.push('No successful responses in previous round.');
   } else {
     const fairShare = Math.max(
       800,
@@ -346,17 +524,30 @@ export function buildRoundContext(contributions, options = {}) {
       labelMap.push({ label, agent: item.agent });
 
       const excerpt = truncateText(item.text, perAgentBudget);
-      lines.push(`[${label}]`);
+      lines.push(`━━━ ${label} ━━━`);
       lines.push(excerpt.text || '(empty)');
       lines.push('');
     });
+
+    // Add analysis prompt after all responses
+    lines.push(`━━━ END OF RESPONSES ━━━`);
+    lines.push(``);
+    lines.push(`ANALYSIS CHECKLIST (consider before responding):`);
+    lines.push(`□ Which responses share common ground?`);
+    lines.push(`□ What are the key points of disagreement?`);
+    lines.push(`□ Which arguments are backed by evidence vs. opinion?`);
+    lines.push(`□ Are there any logical fallacies or weak reasoning?`);
+    lines.push(`□ What perspectives or considerations are missing?`);
+    lines.push(`□ Is there a synthesis position that addresses multiple viewpoints?`);
+    lines.push(``);
   }
 
   if (failedItems.length > 0) {
-    lines.push('Errors from previous round:');
+    lines.push('Note: The following participants encountered errors in the previous round:');
     for (const item of failedItems) {
       lines.push(`- ${item.agent || item.role || 'unknown'}: ${item.error || 'unknown error'}`);
     }
+    lines.push('');
   }
 
   const merged = lines.join('\n').trim();
@@ -1016,6 +1207,32 @@ export async function runRoundtable({
     };
 
     roundsOut.push(roundOut);
+
+    // Analyze discussion dynamics after round 2+
+    if (round >= 2) {
+      const dynamics = analyzeDiscussionDynamics(roundsOut);
+      roundOut.discussion_dynamics = dynamics;
+
+      await pluginLog(client, 'info',
+        `[roundtable] round ${round}/${totalRounds} dynamics: converged=${dynamics.converged}, score=${dynamics.convergence_score.toFixed(2)}, recommendation=${dynamics.recommendation}`,
+        {
+          round,
+          converged: dynamics.converged,
+          convergence_score: dynamics.convergence_score,
+          recommendation: dynamics.recommendation,
+          reason: dynamics.reason,
+        });
+
+      // Early stop if converged and we've done at least 2 rounds
+      if (dynamics.converged && dynamics.recommendation === 'stop' && round >= 2) {
+        await pluginLog(client, 'info',
+          `[roundtable] early stop at round ${round}/${totalRounds}: discussion has converged`,
+          { reason: dynamics.reason });
+
+        abortReason = `discussion_converged_at_round_${round}`;
+        break;
+      }
+    }
 
     if (roundtableArtifactDir) {
       writeJSONFile(
