@@ -259,95 +259,39 @@ export function buildRoundPrompt({
   const header = `ROUND ${round}/${totalRounds}`;
   if (round <= 1) {
     return `${header}
-TOPIC:
-${topic}
+TOPIC: ${topic}
 
-You are ${agent}.
+You are ${agent}. Provide your initial analysis.
 
-Your task is to provide your initial analysis of this topic. This is the first round of a multi-round deliberative discussion.
-
-Structure your response EXACTLY as follows:
-
-1. POSITION:
-   State your main stance or conclusion in 1-2 clear sentences.
-
-2. KEY REASONS:
-   List 3-5 specific reasons supporting your position.
-   - Use bullet points
-   - Be concrete and specific
-   - Cite evidence, data, or logical reasoning where applicable
-
-3. POTENTIAL RISKS/CONCERNS:
-   List 2-4 potential risks, downsides, or concerns about your position.
-   - Use bullet points
-   - Be honest about limitations
-   - Consider alternative perspectives
-
-4. RECOMMENDATION:
-   Provide a clear, actionable recommendation in 1-2 sentences.
-
-IMPORTANT: Be thorough but concise. Your response will be shared with other participants who will critique and build upon it.`;
+Structure:
+1. POSITION: Your stance (1-2 sentences)
+2. KEY REASONS: 3-5 bullet points with evidence
+3. RISKS/CONCERNS: 2-4 bullet points on limitations
+4. RECOMMENDATION: Clear, actionable (1-2 sentences)`;
   }
 
-  const peerRef = anonymousViewpoints ? 'other responses' : 'your peers';
-  const peerRefCaps = anonymousViewpoints ? 'OTHER RESPONSES' : 'YOUR PEERS';
+  const peerRef = anonymousViewpoints ? 'other responses' : 'peers';
   const contextTitle = anonymousViewpoints
-    ? '=== PREVIOUS ROUND RESPONSES (ANONYMIZED) ==='
-    : '=== PREVIOUS ROUND RESPONSES FROM YOUR PEERS ===';
+    ? '=== PREVIOUS ROUND (ANONYMIZED) ==='
+    : '=== PREVIOUS ROUND ===';
 
   return `${header}
-TOPIC:
-${topic}
+TOPIC: ${topic}
 
 ${contextTitle}
 ${previousContext || '(none)'}
 
-You are ${agent}.
+You are ${agent}. This is a DISCUSSION - engage with the above responses.
 
-CRITICAL INSTRUCTIONS: This is a DELIBERATIVE DISCUSSION, not a monologue. You MUST engage with the responses above.
+Required sections:
+1. POSITION UPDATE: Changed? (Yes/No/Partially) Why?
+2. AGREEMENTS: Cite specific ${peerRef} + explain why compelling
+3. DISAGREEMENTS: Cite specific ${peerRef} + counter-arguments
+4. NEW INSIGHTS: What emerged? Any synthesis possible?
+5. UPDATED RECOMMENDATION: Current stance + confidence level
 
-Your response MUST include ALL of the following sections:
-
-1. POSITION UPDATE:
-   - State clearly: Have you changed your position after reading ${peerRef}? (Answer: Yes/No/Partially)
-   - If YES or PARTIALLY: Explain specifically what changed your mind and why. Quote or reference the arguments that convinced you.
-   - If NO: Explain why you maintain your position despite the arguments presented. Address the strongest opposing points directly.
-
-2. AGREEMENTS WITH ${peerRefCaps}:
-   - List specific points where you agree with ${peerRef}
-   - For EACH agreement, you MUST:
-     * Cite which response you're agreeing with (e.g., "I agree with Response A's point that...")
-     * Explain WHY you find this point compelling
-     * Add any supporting evidence or reasoning
-   - If you agree with nothing, explain why all other positions are flawed
-
-3. DISAGREEMENTS WITH ${peerRefCaps}:
-   - List specific points where you disagree with ${peerRef}
-   - For EACH disagreement, you MUST:
-     * Cite which response you're disagreeing with (e.g., "I disagree with Response B's claim that...")
-     * Explain WHY you disagree (provide counter-arguments or evidence)
-     * Address the strongest version of their argument (steel-man it, then refute it)
-   - If you disagree with nothing, explain why you now fully align with the consensus
-
-4. NEW INSIGHTS & SYNTHESIS:
-   - What new insights or perspectives emerged from this round?
-   - Are there any middle-ground positions or compromises that could resolve disagreements?
-   - What questions or uncertainties remain unresolved?
-   - Has the discussion revealed any blind spots in your original thinking?
-
-5. UPDATED RECOMMENDATION:
-   - Based on the full discussion so far, what is your current recommendation?
-   - How does it differ from your Round 1 recommendation (if at all)?
-   - What confidence level do you have in this recommendation (high/medium/low)?
-
-CRITICAL REQUIREMENTS:
-- Be SPECIFIC when referencing ${peerRef}. Don't just say "I agree" - say "I agree with [Response A/Agent X]'s point about [specific claim] because [specific reason]"
-- ENGAGE with the strongest arguments against your position. Don't cherry-pick weak arguments to refute.
-- If you're changing your mind, explain the reasoning process clearly
-- If you're NOT changing your mind, you must demonstrate that you've seriously considered the alternatives
-- This is a DISCUSSION - show that you're listening and thinking, not just repeating yourself
-
-Your goal is to help the group converge on the best answer through rigorous debate and synthesis.`;
+Be SPECIFIC: "I agree with [Agent X]'s point about [Y] because [Z]"
+Address STRONGEST opposing arguments, not weak ones.`;
 }
 
 export function summarizeRound(contributions) {
@@ -481,6 +425,9 @@ function calculateTextSimilarity(text1, text2) {
   const intersection = new Set([...words1].filter(x => words2.has(x)));
   const union = new Set([...words1, ...words2]);
 
+  // Guard against division by zero (shouldn't happen given checks above, but defensive)
+  if (union.size === 0) return 0;
+
   return intersection.size / union.size;
 }
 
@@ -491,20 +438,9 @@ export function buildRoundContext(contributions, options = {}) {
   const failedItems = contributions.filter((item) => !item.success);
 
   const lines = [
-    `ROUND SUMMARY:`,
-    `- Total participants: ${contributions.length}`,
-    `- Successful responses: ${successItems.length}`,
-    `- Failed responses: ${failedItems.length}`,
+    `Participants: ${contributions.length} | Success: ${successItems.length} | Failed: ${failedItems.length}`,
     ``,
-    `INSTRUCTIONS FOR READING THESE RESPONSES:`,
-    `1. Read ALL responses carefully and completely`,
-    `2. Identify points of AGREEMENT (where multiple responses align)`,
-    `3. Identify points of DISAGREEMENT (where responses conflict)`,
-    `4. Evaluate the STRENGTH of each argument (evidence, logic, reasoning)`,
-    `5. Consider what's MISSING from the discussion`,
-    `6. Think about how to SYNTHESIZE or RESOLVE disagreements`,
-    ``,
-    `YOUR TASK: Respond to these viewpoints by engaging with specific arguments, not by repeating your previous position.`,
+    `TASK: Engage with these responses - cite specific arguments, don't repeat yourself.`,
     ``,
   ];
 
@@ -528,22 +464,10 @@ export function buildRoundContext(contributions, options = {}) {
       lines.push(excerpt.text || '(empty)');
       lines.push('');
     });
-
-    // Add analysis prompt after all responses
-    lines.push(`━━━ END OF RESPONSES ━━━`);
-    lines.push(``);
-    lines.push(`ANALYSIS CHECKLIST (consider before responding):`);
-    lines.push(`□ Which responses share common ground?`);
-    lines.push(`□ What are the key points of disagreement?`);
-    lines.push(`□ Which arguments are backed by evidence vs. opinion?`);
-    lines.push(`□ Are there any logical fallacies or weak reasoning?`);
-    lines.push(`□ What perspectives or considerations are missing?`);
-    lines.push(`□ Is there a synthesis position that addresses multiple viewpoints?`);
-    lines.push(``);
   }
 
   if (failedItems.length > 0) {
-    lines.push('Note: The following participants encountered errors in the previous round:');
+    lines.push('Errors:');
     for (const item of failedItems) {
       lines.push(`- ${item.agent || item.role || 'unknown'}: ${item.error || 'unknown error'}`);
     }
